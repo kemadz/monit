@@ -317,7 +317,7 @@ static void do_head(HttpResponse res, const char *path, const char *name, int re
                             "<style type=\"text/css\"> "\
                             " html, body {height: 100%%;margin: 0;} "\
                             " body {background-color: white;font: normal normal normal 16px/20px 'HelveticaNeue', Helvetica, Arial, sans-serif; color:#222;} "\
-                            " h1 {padding:30px 0 10px 0; text-align:center;color:#222;font-size:28px;} "\
+                            " h1 {text-align:center;color:#222;font-size:28px;} "\
                             " h2 {padding:20px 0 10px 0; text-align:center;color:#555;font-size:22px;} "\
                             " a:hover {text-decoration: none;} "\
                             " a {text-decoration: underline;color:#222} "\
@@ -325,7 +325,7 @@ static void do_head(HttpResponse res, const char *path, const char *name, int re
                             " .stripe {background:#EDF5FF} "\
                             " .rule {background:#ddd} "\
                             " .red-text {color:#ff0000;} "\
-                            " .green-text {color:#00ff00;} "\
+                            " .green-text {color:#0055ff;} "\
                             " .gray-text {color:#999999;} "\
                             " .blue-text {color:#0000ff;} "\
                             " .orange-text {color:#ff8800;} "\
@@ -337,12 +337,12 @@ static void do_head(HttpResponse res, const char *path, const char *name, int re
                             " #footer a {color:#333;} #footer a:hover {text-decoration: none;} "\
                             " #nav {background:#ddd;font:normal normal normal 14px/0px 'HelveticaNeue', Helvetica;} "\
                             " #nav td {padding:5px 10px;} "\
-                            " #header {margin-bottom:30px;background:#EFF7FF} "\
+                            " #header {background:#EFF7FF} "\
                             " #nav, #header {border-bottom:1px solid #ccc;} "\
                             " #header-row {width:95%%;} "\
-                            " #header-row th {padding:30px 10px 10px 10px;font-size:120%%;} "\
+                            " #header-row th {padding:15px 10px 10px 10px;font-size:120%%;} "\
                             " #header-row td {padding:3px 10px;} "\
-                            " #header-row .first {min-width:200px;width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;} "\
+                            " #header-row .first {width:120px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;} "\
                             " #status-table {width:95%%;} "\
                             " #status-table th {text-align:left;background:#edf5ff;font-weight:normal;} "\
                             " #status-table th, #status-table td, #status-table tr {border:1px solid #ccc;padding:5px;} "\
@@ -358,7 +358,7 @@ static void do_head(HttpResponse res, const char *path, const char *name, int re
                             "<table id='nav' width='100%%'>"\
                             "  <tr>"\
                             "    <td width='20%%'><a href='.'>Home</a>&nbsp;&gt;&nbsp;<a href='%s'>%s</a></td>"\
-                            "    <td width='60%%' style='text-align:center;'>Use <a href='http://mmonit.com/'>M/Monit</a> to manage all your Monit instances</td>"\
+                            "    <td width='60%%' style='text-align:center;'><h3>Monit Service Manager</h3></td>"\
                             "    <td width='20%%'><p align='right'><a href='_about'>Monit %s</a></td>"\
                             "  </tr>"\
                             "</table>"\
@@ -388,8 +388,7 @@ static void do_home(HttpRequest req, HttpResponse res) {
                             "<table id='header' width='100%%'>"
                             " <tr>"
                             "  <td colspan=2 valign='top' align='left' width='100%%'>"
-                            "  <h1>Monit Service Manager</h1>"
-                            "  <p align='center'>Monit is <a href='_runtime'>running</a> on %s with <i>uptime, %s</i> and monitoring:</p><br>"
+                            "  <p align='center'>Monit is <a href='_runtime'>running</a> on %s with <i>uptime, %s</i> and monitoring:</p>"
                             "  </td>"
                             " </tr>"
                             "</table>", Run.system->name, uptime);
@@ -1461,13 +1460,13 @@ static void do_home_host(HttpRequest req, HttpResponse res) {
                                         StringBuffer_append(res->outputbuffer, "&nbsp;&nbsp;<b>|</b>&nbsp;&nbsp;");
                                 switch (port->is_available) {
                                         case Connection_Init:
-                                                StringBuffer_append(res->outputbuffer, "<span class='gray-text'>[%s] at port %d</span>", port->protocol->name, port->target.net.port);
+                                                StringBuffer_append(res->outputbuffer, "<span class='gray-text'>[%s] at port %d</span>", port->protocol->name == "DEFAULT" ? "TCP" : port->protocol->name, port->target.net.port);
                                                 break;
                                         case Connection_Failed:
-                                                StringBuffer_append(res->outputbuffer, "<span class='red-text'>[%s] at port %d</span>", port->protocol->name, port->target.net.port);
+                                                StringBuffer_append(res->outputbuffer, "<span class='red-text'>[%s] at port %d</span>", port->protocol->name == "DEFAULT" ? "TCP" : port->protocol->name, port->target.net.port);
                                                 break;
                                         default:
-                                                StringBuffer_append(res->outputbuffer, "<span>[%s] at port %d</span>", port->protocol->name, port->target.net.port);
+                                                StringBuffer_append(res->outputbuffer, "<span>[%s] at port %d</span>", port->protocol->name == "DEFAULT" ? "TCP" : port->protocol->name, port->target.net.port);
                                                 break;
                                 }
                         }
@@ -2939,7 +2938,7 @@ static char *get_service_status(Service_T s, char *buf, int buflen) {
         if (s->monitor == Monitor_Not || s->monitor & Monitor_Init) {
                 get_monitoring_status(s, buf, buflen);
         } else if (s->error == 0) {
-                snprintf(buf, buflen, "%s", statusnames[s->type]);
+                snprintf(buf, buflen, "%s", s->type == 4 ? "Running" : statusnames[s->type]);
         } else {
                 // In the case that the service has actualy some failure, error will be non zero. We will check the bitmap and print the description of the first error found
                 while ((*et).id) {
