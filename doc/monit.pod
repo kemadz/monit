@@ -1083,7 +1083,7 @@ mail-format> statement:
 Example:
 
  set mail-format {
-      from: monit@foo.bar
+      from: Monit Support <monit@foo.bar>
   reply-to: support@domain.com
    subject: $SERVICE $EVENT at $DATE
    message: Monit $ACTION $SERVICE at $DATE on $HOST: $DESCRIPTION.
@@ -1091,11 +1091,12 @@ Example:
             monit
  }
 
-The I<from:> option is the sender's email address. That is, the email
-address Monit will pretend it is sending alerts from. It does not have
-to be a real email-address only a proper formatted address.
+The I<from:> option is the sender's email address for Monit alerts. A
+sender's name is optional, but if used, requires that the subsequent
+email-address is enclosed in angle brackets as in the example above.
 
-The I<reply-to:> option can be used to set the reply-to mail header.
+The I<reply-to:> option can be used to set the reply-to mail header,
+optionally with a name.
 
 The I<subject:> option sets the message subject and must be on only
 I<one> line.
@@ -1105,7 +1106,7 @@ be the last in a mail-format statement. The mail body can be as long
 as needed, but must I<not> contain the block-closing '}' character.
 
 You need not use all options, only the option which you want to
-override. For example to globally change the senders address only:
+override. For example to globally change the sender address only:
 
  set mail-format { from: bofh@foo.bar }
 
@@ -1593,7 +1594,7 @@ Monit.
 
 Syntax:
 
- SET LIMIT {
+ SET LIMITS {
    PROGRAMOUTPUT:     <number> <unit>,
    SENDEXPECTBUFFER:  <number> <unit>,
    FILECONTENTBUFFER: <number> <unit>,
@@ -2867,12 +2868,12 @@ Example:
     checksum 8f7f419955cefa0b33a2ba316cba3659
  then alert
 
-I<HTTP HEADERS> can be used to send a list of any HTTP headers
-with a HTTP protocol test. For instance, the host header. If the
-host header is not set, Monit will use the hostname or IP-address
-of the host as specified in the check host statement. Specifying
-a host header is useful if you want to connect to and test a
-name-based virtual host. The syntax for setting HTTP headers is
+I<HTTP HEADERS> can be used to send a list of HTTP headers when using
+the HTTP protocol test. For instance, the host header. If the host
+header is not set, Monit will use the hostname or IP-address of the
+host as specified in the check host statement. Specifying a host header
+is useful if you want to connect to and test a name-based virtual host.
+The syntax for setting HTTP headers is
 
   http headers [name:value, name:value,..]
 
@@ -2896,12 +2897,13 @@ Setting HTTP headers is associated with the HTTP protocol test
 and must come before I<request> as in the example above.
 
 
-I<CONTENT> option sets the pattern which is expected in the data
-returned by the server. If the pattern doesn't match, event is
-triggered.
+The I<CONTENT> option sets the pattern which is expected in the data
+returned by the server. If the pattern doesn't match, the test fails. In
+the example above, if the server does not return a page with the name
+Monit followed by a version number the test will fail.
 
-By default at maximum 1MB is inspected. You can increase the limit
-using the L<set limits|"LIMITS"> statement.
+By default, at maximum 1MB of content is inspected. You can
+increase this limit using the L<set limits|"LIMITS"> statement.
 
 For example:
 
@@ -2957,6 +2959,70 @@ Example:
  then alert
 
 
+=head4 MYSQL
+
+Syntax:
+
+ PROTOCOL MYSQL [USERNAME string PASSWORD string]
+
+I<USERNAME> MySQL username (maximum 16 characters).
+
+I<PASSWORD> MySQL password (special characters can be used, but for non-alphanumerics
+the password has to be quoted).
+
+Username and password (credentials) are B<optional> and if not set,
+Monit will perform the test using anonymous login. This can cause an
+authentication error to be logged in your MySQL log, depending on your
+MySQL configuration.
+
+If credentials are set, Monit will login and perform a MySQL ping test.
+Monit does not require any database privileges, it just needs the
+database user. You might want to create standalone user for Monit to
+use when testing, for example:
+
+ CREATE USER 'monit'@'host_from_which_monit_performs_testing' IDENTIFIED BY 'mysecretpassword';
+ FLUSH PRIVILEGES;
+
+Example:
+
+ check process mysql with pidfile /var/run/mysqld/mysqld.pid
+     start program = "/sbin/start mysql"
+     stop program = "/sbin/stop mysql"
+     if failed
+        port 3306
+        protocol mysql username "foo" password "bar"
+     then alert
+
+or with unix-socket and OS X start/stop commands
+
+ check process mysql with pidfile /var/run/mysqld/mysqld.pid
+     start program = "/usr/local/mysql/support-files/mysql.server start"
+     stop program = "/usr/local/mysql/support-files/mysql.server stop"
+     if failed
+        unixsocket /tmp/mysql.sock
+        protocol mysql username "foo" password "bar"
+     then alert
+
+
+=head4 RADIUS
+
+Syntax:
+
+ PROTOCOL RADIUS [SECRET string]
+
+I<SECRET> you may specify an alternative secret, default is "testing123".
+
+For example:
+
+ check process radiusd with pidfile /var/run/radiusd.pid
+       start program = "/etc/init.d/freeradius start"
+       stop program = "/etc/init.d/freeradius stop"
+       if failed
+          host 127.0.0.1 port 1812 type udp protocol radius
+          secret pingpong
+       then alert
+
+
 =head4 SIP
 
 The SIP protocol is used by communication platform servers such
@@ -2984,65 +3050,43 @@ For example:
    then alert
 
 
-=head4 RADIUS
+=head4 SMTP
 
 Syntax:
 
- PROTOCOL RADIUS [SECRET string]
+ PROTOCOL SMTP[S] [USERNAME string PASSWORD string]
 
-I<SECRET> you may specify an alternative secret, default is "testing123".
+I<USERNAME> SMTP username.
 
-For example:
+I<PASSWORD> SMTP password (special characters can be used, but for
+non-alphanumerics the password has to be quoted).
+ 
+Credentials are I<optional> and when used will perform authentication
+during testing so you can test that authentication also works. We
+recommend using I<smtps> if authentication is to be used to encrypt the
+communication. If no credentials are set, Monit will just perform a
+basic protocol test.
 
- check process radiusd with pidfile /var/run/radiusd.pid
-       start program = "/etc/init.d/freeradius start"
-       stop program = "/etc/init.d/freeradius stop"
-       if failed
-          host 127.0.0.1 port 1812 type udp protocol radius
-          secret pingpong
-       then alert
+Example:
 
-
-=head4 MYSQL
-
-Syntax:
-
- PROTOCOL MYSQL [USERNAME string PASSWORD string]
-
-I<USERNAME> MySQL username (maximum 16 characters).
-
-I<PASSWORD> MySQL password (special characters can be used, but for non-alphanumerics
-the password has to be quoted).
-
-The credentials are B<optional>. If no credentials are set, Monit will perform
-the test using anonymous login. That may cause authentication error to be logged
-in your MySQL log for higher MySQL log levels.
-
-If credentials are set, Monit will login and perform MySQL ping. Monit doesn't
-require any database privileges, it needs just database user, we recommend to
-create standalone user for Monit testing, for example:
-
- CREATE USER 'monit'@'host_from_which_monit_performs_testing' IDENTIFIED BY 'mysecretpassword';
- FLUSH PRIVILEGES;
-
-For example:
-
- check process mysql with pidfile /var/run/mysqld/mysqld.pid
-     start program = "/sbin/start mysql"
-     stop program = "/sbin/stop mysql"
+ check process postfix with pidfile /var/spool/postfix/pid/master.pid
+     start program = "/etc/init.d/postfix start"
+     stop  program = "/etc/init.d/postfix stop"
      if failed
-        port 3306
-        protocol mysql username "foo" password "bar"
+        port 25
+        protocol smtp
      then alert
 
-or with unix-socket and OS X start/stop commands
+Example using authentication and STARTTLS/SMTPS:
 
- check process mysql with pidfile /var/run/mysqld/mysqld.pid
-     start program = "/usr/local/mysql/support-files/mysql.server start"
-     stop program = "/usr/local/mysql/support-files/mysql.server stop"
+ check process postfix with pidfile /var/spool/postfix/pid/master.pid
+     start program = "/etc/init.d/postfix start"
+     stop  program = "/etc/init.d/postfix stop"
      if failed
-        unixsocket /tmp/mysql.sock
-        protocol mysql username "foo" password "bar"
+        port 25
+        protocol smtps
+        username "foo"
+        password "bar"
      then alert
 
 
@@ -3433,7 +3477,7 @@ The host the event occurred on
 =back
 
 The following environment variables are only available for
-process service entries:
+I<check process> service entries:
 
 =over 4
 
@@ -3452,6 +3496,17 @@ Process children. This may be 0 if the process was (re)started,
 =item MONIT_PROCESS_CPU_PERCENT
 
 Process cpu%. This may be 0 if the process was (re)started,
+
+=back
+
+The following environment variables are only available for
+I<check program> service entries:
+
+=over 4
+
+=item MONIT_PROGRAM_STATUS
+
+The program status (exit value).
 
 =back
 

@@ -143,7 +143,7 @@ char *statusnames[] = {"Accessible", "Accessible", "Accessible", "Running", "Onl
 char *servicetypes[] = {"Filesystem", "Directory", "File", "Process", "Remote Host", "System", "Fifo", "Program", "Network"};
 char *pathnames[] = {"Path", "Path", "Path", "Pid file", "Path", "", "Path"};
 char *icmpnames[] = {"Reply", "", "", "Destination Unreachable", "Source Quench", "Redirect", "", "", "Ping", "", "", "Time Exceeded", "Parameter Problem", "Timestamp Request", "Timestamp Reply", "Information Request", "Information Reply", "Address Mask Request", "Address Mask Reply"};
-char *sslnames[] = {"none", "auto", "v2", "v3", "tlsv1", "tlsv1.1", "tlsv1.2"};
+char *sslnames[] = {"auto", "v2", "v3", "tlsv1", "tlsv1.1", "tlsv1.2"};
 
 
 /* ------------------------------------------------------------------ Public */
@@ -193,8 +193,9 @@ boolean_t do_wakeupcall() {
 
 static void _validateOnce() {
         if (State_open()) {
-                State_update();
+                State_restore();
                 validate();
+                State_save();
                 State_close();
         }
 }
@@ -376,7 +377,7 @@ static void do_reinit() {
         /* Update service data from the state repository */
         if (! State_open())
                 exit(1);
-        State_update();
+        State_restore();
 
         /* Start http interface */
         if (can_http())
@@ -534,7 +535,7 @@ static void do_default() {
 
                 if (! State_open())
                         exit(1);
-                State_update();
+                State_restore();
 
                 atexit(file_finalize);
 

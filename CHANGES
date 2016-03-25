@@ -1,6 +1,63 @@
-                     CHANGES version 5.16
+                     CHANGES version 5.17.1
 
            This file summarizes changes made since 5.0
+
+Version 5.17.1
+
+Fixed: Issue #331: Monit crashed if alert by mail is configured, but no mail-format "from"
+is defined (regression in Monit 5.17).
+
+
+Version 5.17
+
+New: SMTP protocol test: added support for STARTTLS. Thanks to Robert Nelson
+for initial patch. Example:
+    if failed port 25 protocol smtps then alert
+
+New: SMTP protocol test: added support for optional authentication test. Note: when
+authentication is used, SMTPS should be always used to not disclose credentials. Example:
+    if failed
+        port 25
+        protocol smtps
+        username "MYUSER"
+        password "MYPASSWORD"
+    then alert
+
+New: Issue #271: Added support for specifying name in mail format's from and reply-to options.
+For example:
+    set mail-format {
+        from: System monitoring <monit@$HOST>
+    }
+
+New: Issue #330: Added environment variable MONIT_PROGRAM_STATUS to allow exec actions read
+the last program status.
+
+Fixed: Issue #270: The include statement now skips recursive inclusion of files, which were
+included already.
+
+Fixed: Issue #278: Reinitialize supplementary groups in exec action when executing as different
+user.
+
+Fixed: Issue #316: The "if changed checksum" and "if changed timestamp" tests value
+is persistent across monit restart/reload now, so if the checksum changed while monit
+was stopped or reloading, it will catch the change. Thanks to Duke Bartholomew for fix.
+
+Fixed: Save the file size, filesystem flags, file/directory/fifo/filesystem permissions,
+network link speed so the "if changed" tests keep the last value across monit restart/reload.
+
+Fixed: Issue #318: The favicon.ico didn't display when monit was behind a reverse HTTP proxy.
+
+Fixed: Issue #327: The monit CLI action or M/Monit action for group of services larger then ~50
+may fail.
+
+Fixed: Issue #329: The send/expect protocol test returned error if the target server sent more
+data then buffer limit.
+
+Fixed: A 32-bit platform with more then 4GB of RAM reported wrong system memory and
+swap value (regression in Monit 5.16).
+
+Fixed: Save state on exit when monit is executed in non-deamon mode (validate once).
+
 
 Version 5.16
 

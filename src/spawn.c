@@ -68,6 +68,14 @@
 #include <fcntl.h>
 #endif
 
+#ifdef HAVE_PWD_H
+#include <pwd.h>
+#endif
+
+#ifdef HAVE_GRP_H
+#include <grp.h>
+#endif
+
 #include "event.h"
 #include "alert.h"
 #include "monit.h"
@@ -92,10 +100,12 @@
 
 /* Do not exceed 8 bits here */
 enum ExitStatus_E {
-        setgid_ERROR   = 0x1,
-        setuid_ERROR   = 0x2,
-        redirect_ERROR = 0x4,
-        fork_ERROR     = 0x8
+        setgid_ERROR     = 0x1,
+        setuid_ERROR     = 0x2,
+        initgroups_ERROR = 0x4,
+        redirect_ERROR   = 0x8,
+        fork_ERROR       = 0x10,
+        getpwuid_ERROR   = 0x20
 } __attribute__((__packed__));
 
 
@@ -112,11 +122,18 @@ static void set_monit_environment(Service_T S, command_t C, Event_T E, const cha
         setenv("MONIT_HOST", Run.system->name, 1);
         setenv("MONIT_EVENT", E ? Event_get_description(E) : C == S->start ? "Started" : C == S->stop ? "Stopped" : "No Event", 1);
         setenv("MONIT_DESCRIPTION", E ? E->message : C == S->start ? "Started" : C == S->stop ? "Stopped" : "No Event", 1);
-        if (S->type == Service_Process) {
-                putenv(Str_cat("MONIT_PROCESS_PID=%d", S->inf->priv.process.pid));
-                putenv(Str_cat("MONIT_PROCESS_MEMORY=%llu", (unsigned long long)((double)S->inf->priv.process.mem / 1024.)));
-                putenv(Str_cat("MONIT_PROCESS_CHILDREN=%d", S->inf->priv.process.children));
-                putenv(Str_cat("MONIT_PROCESS_CPU_PERCENT=%.1f", S->inf->priv.process.cpu_percent));
+        switch (S->type) {
+                case Service_Process:
+                        putenv(Str_cat("MONIT_PROCESS_PID=%d", S->inf->priv.process.pid));
+                        putenv(Str_cat("MONIT_PROCESS_MEMORY=%llu", (unsigned long long)((double)S->inf->priv.process.mem / 1024.)));
+                        putenv(Str_cat("MONIT_PROCESS_CHILDREN=%d", S->inf->priv.process.children));
+                        putenv(Str_cat("MONIT_PROCESS_CPU_PERCENT=%.1f", S->inf->priv.process.cpu_percent));
+                        break;
+                case Service_Program:
+                        putenv(Str_cat("MONIT_PROGRAM_STATUS=%d", S->program->exitStatus));
+                        break;
+                default:
+                        break;
         }
 }
 
@@ -163,18 +180,23 @@ void spawn(Service_T S, command_t C, Event_T E) {
         }
 
         if (pid == 0) {
-
-                /*
-                 * Switch uid/gid if requested
-                 */
                 if (C->has_gid) {
-                        if (0 != setgid(C->gid)) {
+                        if (setgid(C->gid) != 0) {
                                 stat_loc |= setgid_ERROR;
                         }
                 }
                 if (C->has_uid) {
-                        if (0 != setuid(C->uid)) {
-                                stat_loc |= setuid_ERROR;
+                        struct passwd *user = getpwuid(C->uid);
+                        if (user) {
+                                if (initgroups(user->pw_name, getgid()) == 0) {
+                                        if (setuid(C->uid) != 0) {
+                                                stat_loc |= setuid_ERROR;
+                                        }
+                                } else {
+                                        stat_loc |= initgroups_ERROR;
+                                }
+                        } else {
+                                stat_loc |= getpwuid_ERROR;
                         }
                 }
 
@@ -227,10 +249,14 @@ void spawn(Service_T S, command_t C, Event_T E) {
                 LogError("Failed to change gid to '%d' for '%s'\n", C->gid, C->arg[0]);
         if (exit_status & setuid_ERROR)
                 LogError("Failed to change uid to '%d' for '%s'\n", C->uid, C->arg[0]);
+        if (exit_status & initgroups_ERROR)
+                LogError("initgroups for UID %d failed when executing '%s'\n", C->uid, C->arg[0]);
         if (exit_status & fork_ERROR)
                 LogError("Cannot fork a new process for '%s'\n", C->arg[0]);
         if (exit_status & redirect_ERROR)
                 LogError("Cannot redirect IO to /dev/null for '%s'\n", C->arg[0]);
+        if (exit_status & getpwuid_ERROR)
+                LogError("UID %d not found on the system when executing '%s'\n", C->uid, C->arg[0]);
 
         /*
          * Restore the signal mask

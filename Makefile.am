@@ -15,7 +15,7 @@ YACCFLAGS	= -dvt
 POD2MAN		= @POD2MAN@
 POD2MANFLAGS	= @POD2MANFLAGS@
 
-AM_CPPFLAGS	= $(CPPFLAGS) $(EXTCPPFLAGS) -D@ARCH@ -DSYSCONFDIR="\"@sysconfdir@\"" -I./src -I./src/device -I./src/http -I./src/process -I./src/protocols -I./src/ssl -I./libmonit/src
+AM_CPPFLAGS	= $(CPPFLAGS) $(EXTCPPFLAGS) -D@ARCH@ -DSYSCONFDIR="\"@sysconfdir@\"" -I./src -I./src/device -I./src/http -I./src/notification -I./src/process -I./src/protocols -I./src/ssl -I./libmonit/src
 AM_LDFLAGS	= $(LDFLAGS) $(EXTLDFLAGS) -L./lib/
 
 bin_PROGRAMS	= monit
@@ -36,7 +36,6 @@ monit_SOURCES	= src/y.tab.c \
 		  src/md5_crypt.c \
 		  src/net.c \
 		  src/process.c \
-		  src/sendmail.c \
 		  src/sha1.c \
 		  src/signal.c \
 		  src/socket.c \
@@ -52,6 +51,8 @@ monit_SOURCES	= src/y.tab.c \
 		  src/http/cervlet.c \
 		  src/http/engine.c \
 		  src/http/processor.c \
+		  src/notification/Address.c \
+		  src/notification/SMTP.c \
 		  src/process/sysdep_@ARCH@.c \
 		  src/protocols/apache_status.c \
 		  src/protocols/clamav.c \
@@ -116,6 +117,7 @@ dist-hook::
 	-rm -f $(distdir)/src/stamp-*
 	-rm -f $(distdir)/src/y.output
 	-rm -f $(distdir)/README.md
+	-mv $(distdir)/doc/CHANGES $(distdir)/
 	-perl -pi -e 's/^Version: .*/Version: '$(VERSION)'/' $(distdir)/system/packages/redhat/monit.spec
 	-chmod 600 monitrc
 	

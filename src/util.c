@@ -819,7 +819,7 @@ void Util_printRunList() {
                 for (c = Run.mmonits; c; c = c->next) {
                         printf("%s with timeout %s", c->url->url, Str_milliToTime(c->timeout, (char[23]){}));
 #ifdef HAVE_OPENSSL
-                        if (c->ssl.use_ssl) {
+                        if (c->ssl.flags) {
                                 printf(" using SSL/TLS");
                                 const char *options = Ssl_printOptions(&c->ssl, (char[STRLEN]){}, STRLEN);
                                 if (options && *options)
@@ -844,7 +844,7 @@ void Util_printRunList() {
                 for (mta = Run.mailservers; mta; mta = mta->next) {
                         printf("%s:%d", mta->host, mta->port);
 #ifdef HAVE_OPENSSL
-                        if (mta->ssl.use_ssl) {
+                        if (mta->ssl.flags) {
                                 printf(" using SSL/TLS");
                                 const char *options = Ssl_printOptions(&mta->ssl, (char[STRLEN]){}, STRLEN);
                                 if (options && *options)
@@ -862,11 +862,22 @@ void Util_printRunList() {
                 printf("\n");
         }
 
-        printf(" %-18s = %s\n", "Mail from", is_str_defined(Run.MailFormat.from));
-        printf(" %-18s = %s\n", "Mail subject", is_str_defined(Run.MailFormat.subject));
-        printf(" %-18s = %-.20s%s\n", "Mail message",
-               Run.MailFormat.message ? Run.MailFormat.message : "(not defined)",
-               Run.MailFormat.message ? "..(truncated)" : "");
+        if (Run.MailFormat.from) {
+                if (Run.MailFormat.from->name)
+                        printf(" %-18s = %s <%s>\n", "Mail from", Run.MailFormat.from->name, Run.MailFormat.from->address);
+                else
+                        printf(" %-18s = %s\n", "Mail from", Run.MailFormat.from->address);
+        }
+        if (Run.MailFormat.replyto) {
+                if (Run.MailFormat.replyto->name)
+                        printf(" %-18s = %s <%s>\n", "Mail reply to", Run.MailFormat.replyto->name, Run.MailFormat.replyto->address);
+                else
+                        printf(" %-18s = %s\n", "Mail reply to", Run.MailFormat.replyto->address);
+        }
+        if (Run.MailFormat.subject)
+                printf(" %-18s = %s\n", "Mail subject", Run.MailFormat.subject);
+        if (Run.MailFormat.message)
+                printf(" %-18s = %-.20s..(truncated)\n", "Mail message", Run.MailFormat.message);
 
         printf(" %-18s = %s\n", "Start monit httpd", (Run.httpd.flags & Httpd_Net || Run.httpd.flags & Httpd_Unix) ? "True" : "False");
 
@@ -1081,7 +1092,7 @@ void Util_printService(Service_T s) {
                 if (o->retry > 1)
                         StringBuffer_append(buf2, " and retry %d times", o->retry);
 #ifdef HAVE_OPENSSL
-                if (o->target.net.ssl.use_ssl) {
+                if (o->target.net.ssl.flags) {
                         StringBuffer_append(buf2, " using SSL/TLS");
                         const char *options = Ssl_printOptions(&o->target.net.ssl, (char[STRLEN]){}, STRLEN);
                         if (options && *options)
@@ -1776,15 +1787,15 @@ void Util_resetInfo(Service_T s) {
                         s->inf->priv.process.euid = -1;
                         s->inf->priv.process.gid = -1;
                         s->inf->priv.process.zombie = false;
-                        s->inf->priv.process.threads = 0;
-                        s->inf->priv.process.children = 0;
+                        s->inf->priv.process.threads = -1;
+                        s->inf->priv.process.children = -1;
                         s->inf->priv.process.mem = 0ULL;
                         s->inf->priv.process.total_mem = 0ULL;
-                        s->inf->priv.process.mem_percent = 0.;
-                        s->inf->priv.process.total_mem_percent = 0.;
-                        s->inf->priv.process.cpu_percent = 0.;
-                        s->inf->priv.process.total_cpu_percent = 0.;
-                        s->inf->priv.process.uptime = 0;
+                        s->inf->priv.process.mem_percent = -1.;
+                        s->inf->priv.process.total_mem_percent = -1.;
+                        s->inf->priv.process.cpu_percent = -1.;
+                        s->inf->priv.process.total_cpu_percent = -1.;
+                        s->inf->priv.process.uptime = -1;
                         break;
                 case Service_Net:
                         if (s->inf->priv.net.stats)
@@ -2003,7 +2014,7 @@ const char *Util_portRequestDescription(Port_T p) {
 
 char *Util_portDescription(Port_T p, char *buf, int bufsize) {
         if (p->family == Socket_Ip || p->family == Socket_Ip4 || p->family == Socket_Ip6) {
-                snprintf(buf, STRLEN, "[%s]:%d%s [%s/%s%s]", p->hostname, p->target.net.port, Util_portRequestDescription(p), Util_portTypeDescription(p), Util_portIpDescription(p), p->target.net.ssl.use_ssl ? " SSL" : "");
+                snprintf(buf, STRLEN, "[%s]:%d%s [%s/%s%s]", p->hostname, p->target.net.port, Util_portRequestDescription(p), Util_portTypeDescription(p), Util_portIpDescription(p), p->target.net.ssl.flags ? " SSL" : "");
         } else if (p->family == Socket_Unix) {
                 snprintf(buf, STRLEN, "%s", p->target.unix.pathname);
         } else {

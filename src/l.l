@@ -69,6 +69,7 @@ struct buffer_stack_s {
         YY_BUFFER_STATE buffer;
 } buffer_stack[MAX_STACK_DEPTH];
 
+extern List_T included;
 
 int lineno = 1;
 int arglineno = 1;
@@ -110,6 +111,8 @@ wws         [ \r\t;,()]+
 number      [0-9]+
 real        [0-9]+([.][0-9]+)?
 str         [^\000-\041@:{}"';(),%]+
+address     [^\000-\041<>{}\[\]]+
+addrname    [^\000-\037@<>{}\[\]]+
 hostname    {str}(\.{str})*
 greater     ("more"|"greater"|"gt"|">")
 less        ("less"|"lt"|"<")
@@ -138,7 +141,7 @@ hour        ("hour"|"hours"|"h")
 day         ("day"|"days")
 month       ("month"|"months")
 
-%x ARGUMENT_COND DEPEND_COND SERVICE_COND URL_COND STRING_COND EVERY_COND HTTP_HEADER_COND INCLUDE
+%x ARGUMENT_COND DEPEND_COND SERVICE_COND URL_COND ADDRESS_COND STRING_COND EVERY_COND HTTP_HEADER_COND INCLUDE
 
 %%
 
@@ -574,17 +577,15 @@ group[ \t]+       {
                     return PATH;
                   }
 
-"from:"[ \t]*{str}[@]{str} {
-                      char *p = yytext+strlen("from:");
-                      yylval.string = Str_trim(Str_dup(p));
-                      save_arg();
+"from:"[ \t]* {
+                      yylval.address = Address_new();
+                      BEGIN(ADDRESS_COND);
                       return MAILFROM;
                   }
 
-"reply-to:"[ \t]*{str}[@]{str} {
-                      char *p = yytext+strlen("reply-to:");
-                      yylval.string = Str_trim(Str_dup(p));
-                      save_arg();
+"reply-to:"[ \t]* {
+                      yylval.address = Address_new();
+                      BEGIN(ADDRESS_COND);
                       return MAILREPLYTO;
                   }
 
@@ -756,6 +757,38 @@ group[ \t]+       {
 
 }
 
+<ADDRESS_COND>{
+
+   [}\n]        {
+                        if (yytext[0] == '}')
+                                yyless(0);
+                        BEGIN(INITIAL);
+                        if (! yylval.address->address)
+                                yyerror("missing address");
+                        save_arg();
+                        return ADDRESSOBJECT;
+                }
+
+  {address}     {
+                        yylval.address->address = Str_dup(yytext);
+                }
+
+  {addrname}    {
+                        char *name = Str_unquote(Str_dup(yytext));
+                        if (name && *name)
+                                yylval.address->name = Str_unquote(Str_dup(yytext));
+                }
+
+  [<>:\[\]]     {
+                        // Ignore
+                }
+
+  .             {
+                        BEGIN(INITIAL);
+                        yyerror("invalid mail format");
+                }
+}
+
 <STRING_COND>{
 
   {str}           {
@@ -844,7 +877,7 @@ group[ \t]+       {
 }
 
 
-<INITIAL,ARGUMENT_COND,SERVICE_COND,DEPEND_COND,URL_COND,STRING_COND,EVERY_COND,HTTP_HEADER_COND>. {
+<INITIAL,ARGUMENT_COND,SERVICE_COND,DEPEND_COND,URL_COND,ADDRESS_COND,STRING_COND,EVERY_COND,HTTP_HEADER_COND>. {
                       check_state = None_State;
                       return yytext[0];
                   }
@@ -911,6 +944,19 @@ static char *handle_quoted_string(char *string) {
 }
 
 
+static void _include(const char *path) {
+        for (list_t l = included->head; l; l = l->next)
+                if (! Str_cmp((char *)(l->e), path))
+                        return;
+        List_append(included, Str_dup(path));
+        FILE *yyin = fopen(path, "r");
+        if (! yyin)
+                yyerror("Cannot include file '%s' -- %s", path, STRERROR);
+        else
+                push_buffer_state(yy_create_buffer(yyin, YY_BUF_SIZE), (char *)path);
+}
+
+
 static void include_file(char *pattern) {
         glob_t globbuf;
         if (glob(pattern, GLOB_MARK, NULL, &globbuf) == 0) {
@@ -918,11 +964,7 @@ static void include_file(char *pattern) {
                         size_t filename_length = strlen(globbuf.gl_pathv[i]);
                         if ((filename_length == 0) || (globbuf.gl_pathv[i][filename_length - 1] == '~' ) || (globbuf.gl_pathv[i][filename_length - 1] == '/'))
                                 continue; // skip subdirectories and file backup copies
-                        FILE *yyin = fopen(globbuf.gl_pathv[i], "r");
-                        if (! yyin)
-                                yyerror("Cannot include file '%s' -- %s", globbuf.gl_pathv[i], STRERROR);
-                        else
-                                push_buffer_state(yy_create_buffer(yyin, YY_BUF_SIZE), globbuf.gl_pathv[i]);
+                        _include(globbuf.gl_pathv[i]);
                 }
                 globfree(&globbuf);
         } else {

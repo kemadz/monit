@@ -114,8 +114,8 @@ typedef enum {
 #endif
 
 
-#include "SslOptions.h"
 #include "Ssl.h"
+#include "Address.h"
 
 
 // libmonit
@@ -329,18 +329,6 @@ typedef enum {
 
 
 typedef enum {
-        MTA_DSN                 = 0x1,
-        MTA_ETRN                = 0x2,
-        MTA_8BitMIME            = 0x4,
-        MTA_Pipelining          = 0x8,
-        MTA_EnhancedStatusCodes = 0x10,
-        MTA_StartTLS            = 0x20,
-        MTA_AuthPlain           = 0x40,
-        MTA_AuthLogin           = 0x80
-} __attribute__((__packed__)) MTAFlags_t;
-
-
-typedef enum {
         Level_Full = 0,
         Level_Summary
 } __attribute__((__packed__)) Level_Type;
@@ -501,8 +489,8 @@ typedef struct mymmonit {
 /** Defines a mailinglist object */
 typedef struct mymail {
         char *to;                         /**< Mail address for alert notification */
-        char *from;                                     /**< The mail from address */
-        char *replyto;                              /**< Optional reply-to address */
+        Address_T from;                                 /**< The mail from address */
+        Address_T replyto;                          /**< Optional reply-to address */
         char *subject;                                       /**< The mail subject */
         char *message;                                       /**< The mail message */
         unsigned int events;  /*< Events for which this mail object should be sent */
@@ -520,6 +508,7 @@ typedef struct mymailserver {
         char *username;                               /** < Username for SMTP_AUTH */
         char *password;                               /** < Password for SMTP_AUTH */
         SslOptions_T ssl;                                      /**< SSL definition */
+        Socket_T socket;                                     /**< Connected socket */
 
         /** For internal use */
         struct mymailserver *next;        /**< Next server to try on connect error */
@@ -686,6 +675,10 @@ typedef struct myport {
                         char *target;
                 } sip;
                 struct {
+                        char *username;
+                        char *password;
+                } smtp;
+                struct {
                         int version;
                         char *host;
                         char *origin;
@@ -739,6 +732,7 @@ typedef struct myresource {
 
 /** Defines timestamp object */
 typedef struct mytimestamp {
+        boolean_t initialized;              /**< true if timestamp was initialized */
         boolean_t test_changes;       /**< true if we only should test for changes */
         Operator_Type operator;                           /**< Comparison operator */
         int  time;                                        /**< Timestamp watermark */
@@ -1193,11 +1187,10 @@ struct myrun {
         MailServer_T mailservers;    /**< List of MTAs used for alert notification */
         Mmonit_T mmonits;        /**< Event notification and status receivers list */
         Auth_T mmonitcredentials;     /**< Pointer to selected credentials or NULL */
-        Event_T eventlist;              /** A list holding partialy handled events */
         /** User selected standard mail format */
         struct myformat {
-                char *from;                          /**< The standard mail from address */
-                char *replyto;                             /**< Optional reply-to header */
+                Address_T from;                      /**< The standard mail from address */
+                Address_T replyto;                         /**< Optional reply-to header */
                 char *subject;                            /**< The standard mail subject */
                 char *message;                            /**< The standard mail message */
         } MailFormat;

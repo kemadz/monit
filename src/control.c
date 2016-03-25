@@ -120,11 +120,18 @@ static int _commandExecute(Service_T S, command_t c, char *msg, int msglen, int6
                 Command_setEnv(C, "MONIT_HOST", Run.system->name);
                 Command_setEnv(C, "MONIT_EVENT", c == S->start ? "Started" : c == S->stop ? "Stopped" : "Restarted");
                 Command_setEnv(C, "MONIT_DESCRIPTION", c == S->start ? "Started" : c == S->stop ? "Stopped" : "Restarted");
-                if (S->type == Service_Process) {
-                        Command_vSetEnv(C, "MONIT_PROCESS_PID", "%d", S->inf->priv.process.pid);
-                        Command_vSetEnv(C, "MONIT_PROCESS_MEMORY", "%llu", (unsigned long long)((double)S->inf->priv.process.mem / 1024.));
-                        Command_vSetEnv(C, "MONIT_PROCESS_CHILDREN", "%d", S->inf->priv.process.children);
-                        Command_vSetEnv(C, "MONIT_PROCESS_CPU_PERCENT", "%.1f", S->inf->priv.process.cpu_percent);
+                switch (S->type) {
+                        case Service_Process:
+                                Command_vSetEnv(C, "MONIT_PROCESS_PID", "%d", S->inf->priv.process.pid);
+                                Command_vSetEnv(C, "MONIT_PROCESS_MEMORY", "%llu", (unsigned long long)((double)S->inf->priv.process.mem / 1024.));
+                                Command_vSetEnv(C, "MONIT_PROCESS_CHILDREN", "%d", S->inf->priv.process.children);
+                                Command_vSetEnv(C, "MONIT_PROCESS_CPU_PERCENT", "%.1f", S->inf->priv.process.cpu_percent);
+                                break;
+                        case Service_Program:
+                                Command_vSetEnv(C, "MONIT_PROGRAM_STATUS", "%d", S->program->exitStatus);
+                                break;
+                        default:
+                                break;
                 }
                 Process_T P = Command_execute(C);
                 Command_free(&C);
@@ -421,13 +428,19 @@ boolean_t control_service_daemon(List_T services, const char *action) {
                 return 1;
         }
         Socket_T socket = NULL;
-        if (Run.httpd.flags & Httpd_Net)
+        if (Run.httpd.flags & Httpd_Net) {
                 // FIXME: Monit HTTP support IPv4 only currently ... when IPv6 is implemented change the family to Socket_Ip
-                socket = Socket_create(Run.httpd.socket.net.address ? Run.httpd.socket.net.address : "localhost", Run.httpd.socket.net.port, Socket_Tcp, Socket_Ip4, (SslOptions_T){.use_ssl = Run.httpd.flags & Httpd_Ssl, .clientpemfile = Run.httpd.socket.net.ssl.clientpem, .allowSelfSigned = Run.httpd.flags & Httpd_AllowSelfSignedCertificates}, Run.limits.networkTimeout);
-        else if (Run.httpd.flags & Httpd_Unix)
+                SslOptions_T options = {
+                        .flags = (Run.httpd.flags & Httpd_Ssl) ? SSL_Enabled : SSL_Disabled,
+                        .clientpemfile = Run.httpd.socket.net.ssl.clientpem,
+                        .allowSelfSigned = Run.httpd.flags & Httpd_AllowSelfSignedCertificates
+                };
+                socket = Socket_create(Run.httpd.socket.net.address ? Run.httpd.socket.net.address : "localhost", Run.httpd.socket.net.port, Socket_Tcp, Socket_Ip4, options, Run.limits.networkTimeout);
+        } else if (Run.httpd.flags & Httpd_Unix) {
                 socket = Socket_createUnix(Run.httpd.socket.unix.path, Socket_Tcp, Run.limits.networkTimeout);
-        else
+        } else {
                 LogError("Action %s not possible - monit http interface is not enabled, please add the 'set httpd' statement\n", action);
+        }
         if (! socket)
                 return 1;
 

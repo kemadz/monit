@@ -103,8 +103,6 @@ void gc() {
                 _gc_mail_server(&Run.mailservers);
         if (Run.mmonits)
                 _gc_mmonit(&Run.mmonits);
-        if (Run.eventlist)
-                gc_event(&Run.eventlist);
         FREE(Run.eventlist_dir);
         FREE(Run.mygroup);
         if (Run.httpd.flags & Httpd_Net) {
@@ -114,7 +112,10 @@ void gc() {
         } else if (Run.httpd.flags & Httpd_Unix) {
                 FREE(Run.httpd.socket.unix.path);
         }
-        FREE(Run.MailFormat.from);
+        if (Run.MailFormat.from)
+                Address_free(&(Run.MailFormat.from));
+        if (Run.MailFormat.replyto)
+                Address_free(&(Run.MailFormat.replyto));
         FREE(Run.MailFormat.subject);
         FREE(Run.MailFormat.message);
         FREE(Run.mail_hostname);
@@ -125,9 +126,11 @@ void gc_mail_list(Mail_T *m) {
         ASSERT(m);
         if ((*m)->next)
                 gc_mail_list(&(*m)->next);
+        if ((*m)->from)
+                Address_free(&((*m)->from));
+        if ((*m)->replyto)
+                Address_free(&((*m)->replyto));
         FREE((*m)->to);
-        FREE((*m)->from);
-        FREE((*m)->replyto);
         FREE((*m)->subject);
         FREE((*m)->message);
         FREE(*m);
@@ -135,7 +138,7 @@ void gc_mail_list(Mail_T *m) {
 
 
 void gccmd(command_t *c) {
-        ASSERT(c&&*c);
+        ASSERT(c && *c);
         for (int i = 0; (*c)->arg[i]; i++)
                 FREE((*c)->arg[i]);
         FREE(*c);
@@ -143,7 +146,7 @@ void gccmd(command_t *c) {
 
 
 void gc_event(Event_T *e) {
-        ASSERT(e&&*e);
+        ASSERT(e && *e);
         if ((*e)->next)
                 gc_event(&(*e)->next);
         (*e)->action = NULL;
@@ -371,6 +374,9 @@ static void _gcportlist(Port_T *p) {
                 FREE((*p)->parameters.mysql.password);
         } else if ((*p)->protocol->check == check_sip) {
                 FREE((*p)->parameters.sip.target);
+        } else if ((*p)->protocol->check == check_smtp) {
+                FREE((*p)->parameters.smtp.username);
+                FREE((*p)->parameters.smtp.password);
         } else if ((*p)->protocol->check == check_radius) {
                 FREE((*p)->parameters.radius.secret);
         } else if ((*p)->protocol->check == check_websocket) {

@@ -22,26 +22,40 @@
  * for all of the code used other than OpenSSL.
  */
 
-#ifndef SSLOPTIONS_H
-#define SSLOPTIONS_H
+
+#ifndef MONIT_ADDRESS_H
+#define MONIT_ADDRESS_H
 
 
-#include "config.h"
-
-
-#define T SslOptions_T
+#define T Address_T
 typedef struct T {
-        boolean_t use_ssl;             /**< true if SSL is required for connection */ //FIXME: drop this (can use version -> SSL_Disabled)
-        short verify;             /**< true if certificate verification is enabled */
-        short allowSelfSigned;     /**< true if self signed certificate is allowed */
-        short version;                  /**< The SSL version to use for connection */
-        short checksumType;                                     /**< Checksum type */
-        int minimumValidDays;         /**< Minimum valid days left for certificate */
-        char *checksum;      /**< The expected md5 sum of the server's certificate */
-        char *clientpemfile;                      /**< Optional client certificate */
-        char *CACertificateFile;             /**< Path to CA certificates PEM file */
-        char *CACertificatePath;            /**< Path to CA certificates directory */
-} T;
+        char *name;
+        char *address;
+} *T;
+
+
+/**
+ * Create a new Address object
+ * @return Address object
+ */
+T Address_new();
+
+
+/**
+ * Destroy the Address object
+ * @param A A reference to the Address object
+ * @exception AssertException if reference is NULL
+ */
+void Address_free(T *A);
+
+
+/**
+ * Copy address object.
+ * @param A An Address object to copy
+ * @return An Address object copy
+ * @exception AssertException if reference is NULL
+ */
+T Address_copy(T A);
 
 
 #undef T

@@ -662,7 +662,7 @@ char *Ssl_printOptions(SslOptions_T *options, char *b, int size) {
         ASSERT(b);
         ASSERT(size > 0);
         *b = 0;
-        if (options->use_ssl) {
+        if (options->flags) {
                 int count = 0;
                 if (options->version != -1)
                         snprintf(b + strlen(b), size - strlen(b) - 1, "%sversion: %s", count++ ? ", " : "", sslnames[options->version]);
