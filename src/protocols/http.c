@@ -61,7 +61,7 @@ static boolean_t _hasHeader(List_T list, const char *name) {
         if (list) {
                 for (list_t h = list->head; h; h = h->next) {
                         char *header = h->e;
-                        if ((strncmp(header, name, strlen(name)) == 0))
+                        if (Str_startsWith(header, name))
                                 if (header[strlen(name)] == ':') // Ensure that name is not just a prefix
                                         return true;
                 }
@@ -95,11 +95,7 @@ static void do_regex(Socket_T socket, int content_length, Request_T R) {
         }
         buf[size] = 0;
 
-#ifdef HAVE_REGEX_H
         int regex_return = regexec(R->regex, buf, 0, NULL, 0);
-#else
-        int regex_return = strstr(buf, R->regex) ? 0 : 1;
-#endif
         FREE(buf);
         switch (R->operator) {
                 case Operator_Equal:
@@ -107,13 +103,9 @@ static void do_regex(Socket_T socket, int content_length, Request_T R) {
                                 rv = true;
                                 DEBUG("HTTP: Regular expression matches\n");
                         } else {
-#ifdef HAVE_REGEX_H
                                 char errbuf[STRLEN];
                                 regerror(regex_return, NULL, errbuf, sizeof(errbuf));
                                 snprintf(error, sizeof(error), "Regular expression doesn't match: %s", errbuf);
-#else
-                                snprintf(error, sizeof(error), "Regular expression doesn't match");
-#endif
                         }
                         break;
                 case Operator_NotEqual:

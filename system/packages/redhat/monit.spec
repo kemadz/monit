@@ -1,6 +1,6 @@
 Name: monit
 Summary: Process monitor and restart utility
-Version: 5.17.1
+Version: 5.18
 Release: 1
 URL: http://mmonit.com/monit/
 Source: http://mmonit.com/monit/dist/%{name}-%{version}.tar.gz
@@ -60,13 +60,16 @@ fi
 
 %files
 %defattr(-,root,root)
-%doc COPYING README doc/CHANGES
+%doc COPYING README CHANGES
 %config(noreplace) /etc/monitrc
 %config /etc/init.d/%{name}
 %{_bindir}/%{name}
 %{_mandir}/man1/%{name}.1.gz
 
 %changelog
+* Fri Apr 01 2016 Martin Pala <martinp@tildeslash.com>
+- Upgraded to monit-5.18
+
 * Fri Mar 04 2016 Martin Pala <martinp@tildeslash.com>
 - Upgraded to monit-5.17.1
 

@@ -235,8 +235,10 @@ static Process_T _Process_new(void) {
 void Process_free(Process_T *P) {
         assert(P && *P);
         FREE((*P)->working_directory);
-        if (Process_isRunning(*P)) 
+        if (Process_isRunning(*P)) {
                 Process_kill(*P);
+                Process_waitFor(*P);
+        }
         _closeParentPipes(*P);
         _closeStreams(*P);
         FREE(*P);
