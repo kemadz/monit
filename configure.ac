@@ -6,7 +6,7 @@ AC_PREREQ([2.53])
 # Note: in  case of beta subversion, use underscore "_" rather then dash "-"
 # since RPM doesn't allow dash in Version
 # Example: 5.0_beta2
-AC_INIT([monit], [5.18], [monit-general@nongnu.org])
+AC_INIT([monit], [5.20.0], [monit-general@nongnu.org])
 AC_CONFIG_AUX_DIR(config)
 AC_CONFIG_MACRO_DIR([m4])
 AM_INIT_AUTOMAKE
@@ -167,6 +167,7 @@ AC_CHECK_HEADERS([ \
         uvm/uvm_extern.h \
         uvm/uvm_param.h \
         vm/vm.h \
+        inttypes.h \
 	])
 
 AC_CHECK_HEADERS([ \
@@ -570,7 +571,7 @@ then
    ARCH="AIX"
    CFLAGS=`echo $CFLAGS|sed 's/-g//g'`
    CFLAGS="$CFLAGS -D_THREAD_SAFE -D_REENTRANT"
-   LIBS="$LIBS -lodm -lperfstat"
+   LIBS="$LIBS -lodm -lperfstat -lm"
    AC_DEFINE([HAVE_CPU_WAIT], [1], [Define to 1 if CPU wait information is available.])
 else
    AC_MSG_WARN([Architecture not supported: ${architecture}])
@@ -644,6 +645,44 @@ if test "$use_largefiles" = 1; then
         AC_DEFINE([HAVE_LARGEFILES], 1, [Define to 1 if you have large files support])
 fi
 
+
+# ------------------------------------------------------------------------
+# zlib Code
+# ------------------------------------------------------------------------
+
+AC_ARG_WITH([zlib],
+        AS_HELP_STRING([--with-zlib(=<path>)],
+                [Link Monit with zlib. An optional path argument may
+                be given to specify the top-level directory to search for
+                zlib to link with]),
+     [
+        if test "x$withval" = "xyes"; then
+                AC_CHECK_LIB([z], [zlibVersion], [], [
+                        zlib="false"
+                        AC_MSG_ERROR([libz not found])
+                ])
+                AC_CHECK_HEADERS([zlib.h])
+        elif test "x$withval" != "xno"; then
+                AC_MSG_CHECKING([for zlib in $withval])
+                LDFLAGS="-L$withval/lib -lz $LDFLAGS "
+                CFLAGS="-I$withval/include $CFLAGS"
+                if test -r "$withval/lib/libz.a" -a -r "$withval/include/zlib.h"; then
+                        AC_DEFINE([HAVE_LIBZ], [1], [Define if you have zlib library])
+                        AC_DEFINE([HAVE_ZLIB_H], [1], [Define if you have zlib header])
+                        AC_MSG_RESULT([ok])
+                else
+                        zlib="false"
+                        AC_MSG_ERROR([zlib not found in $withval])
+                fi
+        fi
+     ],[
+        AC_CHECK_LIB([z], [zlibVersion], [], [
+                zlib="false"
+                AC_MSG_ERROR([libz not found])
+        ])
+        AC_CHECK_HEADERS([zlib.h])
+     ]
+)
 
 # ------------------------------------------------------------------------
 # PAM Code
@@ -893,6 +932,17 @@ if test "$use_sslstatic" = "1" -o "$use_ssl" = "1"; then
         if test "x$ssllibdir" != "x"; then
                 LIBS="$LIBS -L$ssllibdir"
         fi
+
+        AC_MSG_CHECKING([for SSLv2])
+        AC_LINK_IFELSE(
+                [AC_LANG_PROGRAM([#include <openssl/ssl.h>], [SSLv2_client_method()])],
+                [sslv2=yes],
+                [sslv2=no])
+        AC_MSG_RESULT($sslv2)
+        if test "$sslv2" = "yes" ; then
+                AC_DEFINE([HAVE_SSLV2], 1, [Define to 1 if you have openssl with SSLv2])
+        fi
+
         AC_MSG_CHECKING([for TLSv1.1])
         AC_LINK_IFELSE(
                 [AC_LANG_PROGRAM([#include <openssl/ssl.h>], [TLSv1_1_method()])],
@@ -1025,6 +1075,11 @@ cat <<EOT
 | Monit has been configured with the following options:      |
 |                                                            |
 EOT
+if test "xfalse" = "x$zlib"; then
+echo "|   Compression:                                  DISABLED   |"
+else
+echo "|   Compression:                                  ENABLED    |"
+fi
 if test "$use_pam" = "1"; then
 echo "|   PAM support:                                  ENABLED    |"
 else

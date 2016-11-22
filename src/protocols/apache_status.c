@@ -29,6 +29,7 @@
 #endif
 
 #include "protocol.h"
+#include "base64.h"
 
 // libmonit
 #include "exceptions/IOException.h"
@@ -43,7 +44,7 @@
 /* ----------------------------------------------------------------- Private */
 
 
-static void parse_scoreboard(Socket_T socket, char *scoreboard, Port_T p) {
+static void parse_scoreboard(char *scoreboard, Port_T p) {
         int logging = 0, close = 0, dns = 0, keepalive = 0, reply = 0, request = 0, start = 0, wait = 0, graceful = 0, cleanup = 0, open = 0;
         for (char *state = scoreboard; *state; state++) {
                 switch (*state) {
@@ -108,30 +109,52 @@ static void parse_scoreboard(Socket_T socket, char *scoreboard, Port_T p) {
 }
 
 
+static void _parseResponseHeaders(Socket_T socket) {
+        int status;
+        char buf[STRLEN];
+        if (! Socket_readLine(socket, buf, sizeof(buf)))
+                THROW(IOException, "APACHE-STATUS: error receiving data -- %s", STRERROR);
+        Str_chomp(buf);
+        if (! sscanf(buf, "%*s %d", &status))
+                THROW(IOException, "APACHE-STATUS: error -- cannot parse HTTP status in response: %s", buf);
+        if (status != 200)
+                THROW(IOException, "APACHE-STATUS: error -- server returned status %d", status);
+        while (Socket_readLine(socket, buf, sizeof(buf))) {
+                if (! strncmp(buf, "\r\n", sizeof(buf)))
+                        break;
+        }
+}
+
+
 /* ------------------------------------------------------------------ Public */
 
 
 void check_apache_status(Socket_T socket) {
         ASSERT(socket);
-        char host[STRLEN];
+        char buf[4096];
         Port_T p = Socket_getPort(socket);
         ASSERT(p);
-        if (Socket_print(socket,
+        char *auth = Util_getBasicAuthHeader(p->parameters.apachestatus.username, p->parameters.apachestatus.password);
+        int rv = Socket_print(socket,
                 "GET %s?auto HTTP/1.1\r\n"
                 "Host: %s\r\n"
                 "Accept: */*\r\n"
                 "User-Agent: Monit/%s\r\n"
-                "Connection: close\r\n\r\n",
+                "Connection: close\r\n"
+                "%s"
+                "\r\n",
                 p->parameters.apachestatus.path ? p->parameters.apachestatus.path : "/server-status",
-                Util_getHTTPHostHeader(socket, host, STRLEN), VERSION) < 0)
-        {
+                Util_getHTTPHostHeader(socket, buf, sizeof(buf)),
+                VERSION,
+                auth ? auth : "");
+        FREE(auth);
+        if (rv < 0)
                 THROW(IOException, "APACHE-STATUS: error sending data -- %s", STRERROR);
-        }
-        char buffer[4096] = {0};
-        while (Socket_readLine(socket, buffer, sizeof(buffer))) {
-                if (Str_startsWith(buffer, "Scoreboard: ")) {
-                        char *scoreboard = buffer + 12; // skip header
-                        parse_scoreboard(socket, scoreboard, p);
+        _parseResponseHeaders(socket);
+        while (Socket_readLine(socket, buf, sizeof(buf))) {
+                if (Str_startsWith(buf, "Scoreboard: ")) {
+                        char *scoreboard = buf + 12; // skip header
+                        parse_scoreboard(scoreboard, p);
                         return;
                 }
         }

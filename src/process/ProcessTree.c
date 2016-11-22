@@ -399,8 +399,8 @@ void ProcessTree_testMatch(char *pattern) {
                 if (count > 1)
                         printf("\n"
                                "WARNING:\n"
-                               "Multiple processes match the pattern. The check will select a matching process\n"
-                               "with the highest uptime, the one preferred by Monit is highlighted.\n");
+                               "Multiple processes match the pattern. Monit will select the process with the\n"
+                               "highest uptime, the one highlighted.\n");
         }
 }
 
@@ -424,19 +424,19 @@ boolean_t init_system_info(void) {
 boolean_t update_system_info() {
         if (Run.flags & Run_ProcessEngineEnabled) {
                 if (getloadavg_sysdep(systeminfo.loadavg, 3) == -1) {
-                        LogError("'%s' statistic error -- load average gathering failed\n", Run.system->name);
+                        LogError("'%s' statistic error -- load average data collection failed\n", Run.system->name);
                         goto error1;
                 }
 
                 if (! used_system_memory_sysdep(&systeminfo)) {
-                        LogError("'%s' statistic error -- memory usage gathering failed\n", Run.system->name);
+                        LogError("'%s' statistic error -- memory usage data collection failed\n", Run.system->name);
                         goto error2;
                 }
                 systeminfo.total_mem_percent  = systeminfo.mem_max > 0ULL ? (100. * (double)systeminfo.total_mem / (double)systeminfo.mem_max) : 0.;
                 systeminfo.total_swap_percent = systeminfo.swap_max > 0ULL ? (100. * (double)systeminfo.total_swap / (double)systeminfo.swap_max) : 0.;
 
                 if (! used_system_cpu_sysdep(&systeminfo)) {
-                        LogError("'%s' statistic error -- cpu usage gathering failed\n", Run.system->name);
+                        LogError("'%s' statistic error -- cpu usage data collection failed\n", Run.system->name);
                         goto error3;
                 }
 

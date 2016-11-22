@@ -29,6 +29,9 @@
 #include <string.h>
 #include <stdarg.h>
 #include <ctype.h>
+#ifdef HAVE_ZLIB_H
+#include <zlib.h>
+#endif
 
 #include "Str.h"
 #include "StringBuffer.h"
@@ -50,18 +53,19 @@
 struct T {
         int used;
         int length;
-	uchar_t *buffer;
+        unsigned char *buffer;
+        void *compressedBuffer;
 };
 
 
 /* ---------------------------------------------------------------- Private */
 
 
-static inline void append(T S, const char *s, va_list ap) {
+static inline void _append(T S, const char *s, va_list ap) {
         va_list ap_copy;
         while (true) {
                 va_copy(ap_copy, ap);
-                int n = vsnprintf((char*)(S->buffer + S->used), S->length - S->used, s, ap_copy);
+                int n = vsnprintf((char *)(S->buffer + S->used), S->length - S->used, s, ap_copy);
                 va_end(ap_copy);
                 if ((S->used + n) < S->length) {
                         S->used += n;
@@ -73,7 +77,7 @@ static inline void append(T S, const char *s, va_list ap) {
 }
 
 
-static inline T ctor(int hint) {
+static inline T _ctor(int hint) {
         T S;
         NEW(S);
         S->used = 0;
@@ -88,20 +92,21 @@ static inline T ctor(int hint) {
 
 
 T StringBuffer_new(const char *s) {
-        return StringBuffer_append(ctor(STRLEN), "%s", s);
+        return StringBuffer_append(_ctor(STRLEN), "%s", s);
 }
 
 
 T StringBuffer_create(int hint) {
         if (hint <= 0)
                 THROW(AssertException, "Illegal hint value");
-        return ctor(hint);
+        return _ctor(hint);
 }
 
 
 void StringBuffer_free(T *S) {
         assert(S && *S);
         FREE((*S)->buffer);
+        FREE((*S)->compressedBuffer);
         FREE(*S);
 }
 
@@ -111,7 +116,7 @@ T StringBuffer_append(T S, const char *s, ...) {
         if (STR_DEF(s)) {
                 va_list ap;
                 va_start(ap, s);
-                append(S, s, ap);
+                _append(S, s, ap);
                 va_end(ap);
         }
         return S;
@@ -123,7 +128,7 @@ T StringBuffer_vappend(T S, const char *s, va_list ap) {
         if (STR_DEF(s)) {
                 va_list ap_copy;
                 va_copy(ap_copy, ap);
-                append(S, s, ap_copy);
+                _append(S, s, ap_copy);
                 va_end(ap_copy);
         }
         return S;
@@ -243,7 +248,7 @@ const char *StringBuffer_substring(T S, int index) {
         assert(S);
         if (index < 0 || index > S->used)
                 THROW(AssertException, "Index out of bounds");
-        return (const char*)(S->buffer + index);
+        return (const char *)(S->buffer + index);
 }
 
 
@@ -257,12 +262,44 @@ T StringBuffer_clear(T S) {
         assert(S);
         S->used = 0;
         *S->buffer = 0;
+        FREE(S->compressedBuffer);
         return S;
 }
 
 
 const char *StringBuffer_toString(T S) {
         assert(S);
-        return (const char*)S->buffer;
+        return (const char *)S->buffer;
+}
+
+
+const void *StringBuffer_toCompressed(T S, int level, size_t *length) {
+        assert(S);
+        assert(length);
+        assert(level >= 0 && level <= 9);
+#ifdef HAVE_LIBZ
+        z_stream zstream = {};
+        zstream.next_in = S->buffer;
+        zstream.avail_in = S->used;
+        int status = deflateInit2(&zstream, level, Z_DEFLATED, 15 | 16, 8, Z_DEFAULT_STRATEGY);
+        if (status == Z_OK) {
+                unsigned long need = deflateBound(&zstream, S->used);
+                RESIZE(S->compressedBuffer, need);
+                zstream.next_out = S->compressedBuffer;
+                zstream.avail_out = need;
+                status = deflate(&zstream, Z_FINISH);
+                deflateEnd(&zstream);
+                if (status == Z_STREAM_END) {
+                        *length = need - zstream.avail_out;
+                        return (const void *)S->compressedBuffer;
+                }
+        }
+        *length = 0;
+        FREE(S->compressedBuffer);
+        THROW(AssertException, "compression failed: %s", zError(status));
+#else
+        THROW(AssertException, "compression not supported");
+#endif
+        return NULL;
 }
 

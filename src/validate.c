@@ -725,6 +725,10 @@ static int _checkPattern(Match_T pattern, const char *line) {
  */
 static State_Type _checkMatch(Service_T s) {
         ASSERT(s);
+        /* TODO: https://bitbucket.org/tildeslash/monit/issues/401 Refactor and use mmap instead of naive std file io.
+         mmap can make code simpler, more efficient and support multi-line matching as there is no line-buffer, but the
+         whole file is in the buffer.
+         */
         State_Type rv = State_Succeeded;
         if (s->matchlist) {
                 FILE *file = fopen(s->path, "r");
@@ -775,12 +779,12 @@ next:
                                         goto final2;
                                 } else if (length >= Run.limits.fileContentBuffer - 1) {
                                         /* Our read buffer is full: ignore the content past the Run.limits.fileContentBuffer */
-                                        int rv;
+                                        int _rv;
                                         do {
-                                                if ((rv = fgetc(file)) == EOF)
+                                                if ((_rv = fgetc(file)) == EOF)
                                                         goto final2;
                                                 length++;
-                                        } while (rv != '\n');
+                                        } while (_rv != '\n');
                                 }
                         } else {
                                 /* Remove trailing newline */
@@ -843,11 +847,11 @@ static State_Type _checkFilesystemFlags(Service_T s) {
         if (s->inf->priv.filesystem._flags >= 0) {
                 if (s->inf->priv.filesystem._flags != s->inf->priv.filesystem.flags) {
                         for (Fsflag_T l = s->fsflaglist; l; l = l->next)
-                                Event_post(s, Event_Fsflag, State_Changed, l->action, "filesytem flags changed to %#x", s->inf->priv.filesystem.flags);
+                                Event_post(s, Event_Fsflag, State_Changed, l->action, "filesystem flags changed to %#x", s->inf->priv.filesystem.flags);
                         return State_Changed;
                 }
                 for (Fsflag_T l = s->fsflaglist; l; l = l->next)
-                        Event_post(s, Event_Fsflag, State_ChangedNot, l->action, "filesytem flags has not changed");
+                        Event_post(s, Event_Fsflag, State_ChangedNot, l->action, "filesystem flags has not changed");
                 return State_ChangedNot;
         }
         return State_Init;
@@ -1130,24 +1134,27 @@ State_Type check_process(Service_T s) {
                         rv = State_Failed;
                 }
         }
+        int64_t uptimeMilli = s->inf->priv.process.uptime * 1000;
         for (Port_T pp = s->portlist; pp; pp = pp->next) {
+                //FIXME: instead of pause, try to test, but ignore any errors in the start timeout timeframe ... will allow to display the port response time as soon as available, instead of waiting for 30+ seconds
                 /* pause port tests in the start timeout timeframe while the process is starting (it may take some time to the process before it starts accepting connections) */
-                if (! s->start || s->inf->priv.process.uptime > s->start->timeout) {
+                if (! s->start || uptimeMilli > s->start->timeout) {
                         if (_checkConnection(s, pp) == State_Failed)
                                 rv = State_Failed;
                 } else {
                         pp->is_available = Connection_Init;
-                        DEBUG("'%s' connection test paused for %lld seconds while the process is starting\n", s->name, (long long)(s->start->timeout - (s->inf->priv.process.uptime < 0 ? 0 : s->inf->priv.process.uptime)));
+                        DEBUG("'%s' connection test paused for %s while the process is starting\n", s->name, Str_milliToTime(s->start->timeout - (uptimeMilli < 0 ? 0 : uptimeMilli), (char[23]){}));
                 }
         }
         for (Port_T pp = s->socketlist; pp; pp = pp->next) {
+                //FIXME: instead of pause, try to test, but ignore any errors in the start timeout timeframe ... will allow to display the port response time as soon as available, instead of waiting for 30+ seconds
                 /* pause socket tests in the start timeout timeframe while the process is starting (it may take some time to the process before it starts accepting connections) */
-                if (! s->start || s->inf->priv.process.uptime > s->start->timeout) {
+                if (! s->start || uptimeMilli > s->start->timeout) {
                         if (_checkConnection(s, pp) == State_Failed)
                                 rv = State_Failed;
                 } else {
                         pp->is_available = Connection_Init;
-                        DEBUG("'%s' connection test paused for %lld seconds while the process is starting\n", s->name, (long long)(s->start->timeout - (s->inf->priv.process.uptime < 0 ? 0 : s->inf->priv.process.uptime)));
+                        DEBUG("'%s' connection test paused for %s while the process is starting\n", s->name, Str_milliToTime(s->start->timeout - (uptimeMilli < 0 ? 0 : uptimeMilli), (char[23]){}));
                 }
         }
         return rv;
@@ -1163,10 +1170,12 @@ State_Type check_filesystem(Service_T s) {
         ASSERT(s->inf);
         State_Type rv = State_Succeeded;
         if (! filesystem_usage(s)) {
-                Event_post(s, Event_Data, State_Failed, s->action_DATA, "unable to read filesystem '%s' state", s->path);
+                for (Nonexist_T l = s->nonexistlist; l; l = l->next)
+                        Event_post(s, Event_Nonexist, State_Failed, l->action, "unable to read filesystem '%s' state", s->path);
                 return State_Failed;
         }
-        Event_post(s, Event_Data, State_Succeeded, s->action_DATA, "succeeded getting filesystem statistics for '%s'", s->path);
+        for (Nonexist_T l = s->nonexistlist; l; l = l->next)
+                Event_post(s, Event_Nonexist, State_Succeeded, l->action, "succeeded getting filesystem statistics for '%s'", s->path);
         if (_checkPerm(s, s->inf->priv.filesystem.mode) == State_Failed)
                 rv = State_Failed;
         if (_checkUid(s, s->inf->priv.filesystem.uid) == State_Failed)
@@ -1327,16 +1336,16 @@ State_Type check_program(Service_T s) {
         Process_T P = s->program->P;
         if (P) {
                 if (Process_exitStatus(P) < 0) { // Program is still running
-                        time_t execution_time = (now - s->program->started);
+                        int64_t execution_time = (now - s->program->started) * 1000;
                         if (execution_time > s->program->timeout) { // Program timed out
                                 rv = State_Failed;
-                                LogError("'%s' program timed out after %lld seconds. Killing program with pid %ld\n", s->name, (long long)execution_time, (long)Process_getPid(P));
+                                LogError("'%s' program timed out after %s. Killing program with pid %ld\n", s->name, Str_milliToTime(execution_time, (char[23]){}), (long)Process_getPid(P));
                                 Process_kill(P);
                                 Process_waitFor(P); // Wait for child to exit to get correct exit value
                                 // Fall-through with P and evaluate exit value below.
                         } else {
                                 // Defer test of exit value until program exit or timeout
-                                DEBUG("'%s' status check defered - waiting on program to exit\n", s->name);
+                                DEBUG("'%s' status check deferred - waiting on program to exit\n", s->name);
                                 return State_Init;
                         }
                 }
@@ -1351,10 +1360,10 @@ State_Type check_program(Service_T s) {
                         if (status->operator == Operator_Changed) {
                                 if (status->initialized) {
                                         if (Util_evalQExpression(status->operator, s->program->exitStatus, status->return_value)) {
-                                                Event_post(s, Event_Status, State_Changed, status->action, "program status changed (%d -> %d) -- %s", status->return_value, s->program->exitStatus, StringBuffer_length(s->program->output) ? StringBuffer_toString(s->program->output) : "no output");
+                                                Event_post(s, Event_Status, State_Changed, status->action, "status changed (%d -> %d) -- %s", status->return_value, s->program->exitStatus, StringBuffer_length(s->program->output) ? StringBuffer_toString(s->program->output) : "no output");
                                                 status->return_value = s->program->exitStatus;
                                         } else {
-                                                Event_post(s, Event_Status, State_ChangedNot, status->action, "program status didn't change [status=%d] -- %s", s->program->exitStatus, StringBuffer_length(s->program->output) ? StringBuffer_toString(s->program->output) : "no output");
+                                                Event_post(s, Event_Status, State_ChangedNot, status->action, "status didn't change (%d) -- %s", s->program->exitStatus, StringBuffer_length(s->program->output) ? StringBuffer_toString(s->program->output) : "no output");
                                         }
                                 } else {
                                         status->initialized = true;
@@ -1363,9 +1372,9 @@ State_Type check_program(Service_T s) {
                         } else {
                                 if (Util_evalQExpression(status->operator, s->program->exitStatus, status->return_value)) {
                                         rv = State_Failed;
-                                        Event_post(s, Event_Status, State_Failed, status->action, "'%s' failed with exit status (%d) -- %s", s->path, s->program->exitStatus, StringBuffer_length(s->program->output) ? StringBuffer_toString(s->program->output) : "no output");
+                                        Event_post(s, Event_Status, State_Failed, status->action, "status failed (%d) -- %s", s->program->exitStatus, StringBuffer_length(s->program->output) ? StringBuffer_toString(s->program->output) : "no output");
                                 } else {
-                                        Event_post(s, Event_Status, State_Succeeded, status->action, "status succeeded [status=%d] -- %s", s->program->exitStatus, StringBuffer_length(s->program->output) ? StringBuffer_toString(s->program->output) : "no output");
+                                        Event_post(s, Event_Status, State_Succeeded, status->action, "status succeeded (%d) -- %s", s->program->exitStatus, StringBuffer_length(s->program->output) ? StringBuffer_toString(s->program->output) : "no output");
                                 }
                         }
                 }
@@ -1374,7 +1383,7 @@ State_Type check_program(Service_T s) {
                 rv = State_Init;
         }
         //FIXME: the current off-by-one-cycle based design requires that the check program will collect the exit value next cycle even if program startup should be skipped in the given cycle => must test skip here (new scheduler will obsolete this deferred skip checking)
-        if (! _checkSkip(s)) {
+        if (! _checkSkip(s) && s->monitor != Monitor_Not) { // The status evaluation may disable service monitoring
                 // Start program
                 s->program->P = Command_execute(s->program->C);
                 if (! s->program->P) {
@@ -1465,13 +1474,13 @@ State_Type check_net(Service_T s) {
         {
                 havedata = false;
                 for (LinkStatus_T link = s->linkstatuslist; link; link = link->next)
-                        Event_post(s, Event_Link, State_Failed, link->action, "link data gathering failed -- %s", Exception_frame.message);
+                        Event_post(s, Event_Link, State_Failed, link->action, "link data collection failed -- %s", Exception_frame.message);
         }
         END_TRY;
         if (! havedata)
                 return State_Failed; // Terminate test if no data are available
         for (LinkStatus_T link = s->linkstatuslist; link; link = link->next) {
-                Event_post(s, Event_Size, State_Succeeded, link->action, "link data gathering succeeded");
+                Event_post(s, Event_Size, State_Succeeded, link->action, "link data collection succeeded");
         }
         // State
         if (! Link_getState(s->inf->priv.net.stats)) {
@@ -1485,7 +1494,7 @@ State_Type check_net(Service_T s) {
         // Link errors
         long long oerrors = Link_getErrorsOutPerSecond(s->inf->priv.net.stats);
         for (LinkStatus_T link = s->linkstatuslist; link; link = link->next) {
-                if (oerrors) {
+                if (oerrors > 0) {
                         rv = State_Failed;
                         Event_post(s, Event_Link, State_Failed, link->action, "%lld upload errors detected", oerrors);
                 } else {
@@ -1494,7 +1503,7 @@ State_Type check_net(Service_T s) {
         }
         long long ierrors = Link_getErrorsInPerSecond(s->inf->priv.net.stats);
         for (LinkStatus_T link = s->linkstatuslist; link; link = link->next) {
-                if (ierrors) {
+                if (ierrors > 0) {
                         rv = State_Failed;
                         Event_post(s, Event_Link, State_Failed, link->action, "%lld download errors detected", ierrors);
                 } else {
@@ -1559,7 +1568,7 @@ State_Type check_net(Service_T s) {
                                 obytes = Link_getBytesOutPerSecond(s->inf->priv.net.stats);
                                 break;
                 }
-                if (Util_evalQExpression(upload->operator, obytes, upload->limit))
+                if (obytes >= 0 && Util_evalQExpression(upload->operator, obytes, upload->limit))
                         Event_post(s, Event_ByteOut, State_Failed, upload->action, "%supload %s matches limit [upload rate %s %s in last %d %s]", upload->range != Time_Second ? "total " : "", Str_bytesToSize(obytes, buf1), operatorshortnames[upload->operator], Str_bytesToSize(upload->limit, buf2), upload->rangecount, Util_timestr(upload->range));
                 else
                         Event_post(s, Event_ByteOut, State_Succeeded, upload->action, "%supload check succeeded [current upload rate %s in last %d %s]", upload->range != Time_Second ? "total " : "", Str_bytesToSize(obytes, buf1), upload->rangecount, Util_timestr(upload->range));
@@ -1580,7 +1589,7 @@ State_Type check_net(Service_T s) {
                                 opackets = Link_getPacketsOutPerSecond(s->inf->priv.net.stats);
                                 break;
                 }
-                if (Util_evalQExpression(upload->operator, opackets, upload->limit))
+                if (opackets >= 0 && Util_evalQExpression(upload->operator, opackets, upload->limit))
                         Event_post(s, Event_PacketOut, State_Failed, upload->action, "%supload packets %lld matches limit [upload packets %s %lld in last %d %s]", upload->range != Time_Second ? "total " : "", opackets, operatorshortnames[upload->operator], upload->limit, upload->rangecount, Util_timestr(upload->range));
                 else
                         Event_post(s, Event_PacketOut, State_Succeeded, upload->action, "%supload packets check succeeded [current upload packets %lld in last %d %s]", upload->range != Time_Second ? "total " : "", opackets, upload->rangecount, Util_timestr(upload->range));
@@ -1602,7 +1611,7 @@ State_Type check_net(Service_T s) {
                                 ibytes = Link_getBytesInPerSecond(s->inf->priv.net.stats);
                                 break;
                 }
-                if (Util_evalQExpression(download->operator, ibytes, download->limit))
+                if (ibytes >= 0 && Util_evalQExpression(download->operator, ibytes, download->limit))
                         Event_post(s, Event_ByteIn, State_Failed, download->action, "%sdownload %s matches limit [download rate %s %s in last %d %s]", download->range != Time_Second ? "total " : "", Str_bytesToSize(ibytes, buf1), operatorshortnames[download->operator], Str_bytesToSize(download->limit, buf2), download->rangecount, Util_timestr(download->range));
                 else
                         Event_post(s, Event_ByteIn, State_Succeeded, download->action, "%sdownload check succeeded [current download rate %s in last %d %s]", download->range != Time_Second ? "total " : "", Str_bytesToSize(ibytes, buf1), download->rangecount, Util_timestr(download->range));
@@ -1623,7 +1632,7 @@ State_Type check_net(Service_T s) {
                                 ipackets = Link_getPacketsInPerSecond(s->inf->priv.net.stats);
                                 break;
                 }
-                if (Util_evalQExpression(download->operator, ipackets, download->limit))
+                if (ipackets >= 0 && Util_evalQExpression(download->operator, ipackets, download->limit))
                         Event_post(s, Event_PacketIn, State_Failed, download->action, "%sdownload packets %lld matches limit [download packets %s %lld in last %d %s]", download->range != Time_Second ? "total " : "", ipackets, operatorshortnames[download->operator], download->limit, download->rangecount, Util_timestr(download->range));
                 else
                         Event_post(s, Event_PacketIn, State_Succeeded, download->action, "%sdownload packets check succeeded [current download packets %lld in last %d %s]", download->range != Time_Second ? "total " : "", ipackets, download->rangecount, Util_timestr(download->range));

@@ -25,7 +25,13 @@
 
 #include "config.h"
 
+#ifdef HAVE_STDLIB_H
 #include <stdlib.h>
+#endif
+
+#ifdef HAVE_UNISTD_H
+#include <unistd.h>
+#endif
 
 #include "monit.h"
 
@@ -46,7 +52,7 @@
 
 
 boolean_t Color_support() {
-        if (! (Run.flags & Run_Batch)) {
+        if (! (Run.flags & Run_Batch) && isatty(STDOUT_FILENO)) {
                 if (getenv("COLORTERM")) {
                         return true;
                 } else {

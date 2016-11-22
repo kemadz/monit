@@ -1,6 +1,122 @@
-                     CHANGES version 5.18
+                     CHANGES version 5.20.0
 
            This file summarizes changes made since 5.0
+
+Version 5.20.0
+
+New: Add gzip compression support to the HTTP GUI.
+
+New: Add gzip compression support for M/Monit (requires M/Monit 3.6.0 or later). Note that the first
+message is always uncompressed, the compression is enabled when suitable M/Monit version is detected.
+
+New: Issue #448: Added global "set onreboot <start | nostart | laststate>" statement which allows
+to override default service startup policy ("onreboot start" by default).
+
+New: Added new options to "set limits" statement, for setting default timeouts:
+      programTimeout:    300 seconds # default timeout for check program
+      stopTimeout:       30 seconds  # default timeout for service stop
+      startTimeout:      30 seconds  # default timeout for service start
+      restartTimeout:    30 seconds  # default timeout for service restart
+
+New: The cpu, memory, swap, inode and space tests now allow also decimal values for percent limit.
+
+New: Issue #457: Update HOME environment variable when executing program as other user.
+
+Fixed: CSRF vulnerability (CVE-2016-7067). M/Monit users related note: M/Monit service actions now
+require M/Monit 3.6.0 or later due to CSRF support requirement.
+
+Fixed: Monit HTTP GUI: Listen on IPv6 interface if no address is specified (linux specific issue).
+
+Fixed: Monit HTTP GUI: Support CIDR mask 0 as explicit allow-all IP ACL (e.g. "allow 0.0.0.0/0").
+
+Fixed: Host header if IPv6 address is given in HTTP, APACHE-STATUS or WEBSOCKET protocol tests.
+
+Fixed: Support M/Monit on IPv6 address (requires M/Monit 3.6.0 or later).
+
+Fixed: Issue #438: When "include /path/*" is used, silently ignore if there the directory is empty.
+
+Fixed: Issue #441: Incomplete logging of restart action.
+
+Fixed: Issue #444: generic protocol test: "expect" truncated reveived data by one character for each
+zero, which was received.
+
+Fixed: Issue #460: Add support for OpenSSL 1.1.0
+
+Fixed: Issue #467: Testing unix sockets of UDP type didn't work.
+
+Fixed: Issue #468: If the filesystem doesn't exist, Monit now triggers an "nonexist" event instead of
+"data" event, so it's possible to override the default action using "if does not exist then <action>".
+
+Fixed: Issue #480: FreeBSD: Subtract ZFS ARC size from the system memory usage.
+
+Fixed: Issue #486: Fix handling of actions for services with [?&=/] characters in their name.
+
+Fixed: Network check on Solaris 10.
+
+Fixed: Monit GUI: Set the encoding to UTF-8 to support UTF-8 formatted "check program" output.
+
+Fixed: If the check program monitoring was disabled by exit status dependent stop/unmonitor action,
+don't start the program again.
+
+
+Version 5.19.0
+
+New: Issue #421: Monit HTTP GUI: support for IPv6 added.
+
+New: Monit HTTP GUI: it is now possible to listen both on TCP and unix sockets (previously it was
+mutually exclusive).
+
+New: Issue #380: apache-status protocol test: Added support for 'username' and 'password' options for
+Basic authentication. Example:
+ if failed port 80 protocol apache-status username myuser password 123456
+        loglimit > 10% or
+        dnslimit > 50%
+ then alert
+
+New: Add support for Basic authentication to the HTTP protocol test. Example:
+ if failed port 80 protocol http username myuser password 123456 then alert
+
+Fixed: apache-status protocol test: If the server returned an error (for example because authetication
+is required and no credentials were set), provide the error code rather then confusing error message
+"no scoreboard found".
+
+Fixed: Issue #379: A linux system with lots of interrupts may disable process and system resource
+checks.
+
+Fixed: Issue #388: The service-local alert settings didn't override global "set alert" for the same
+recipient properly.
+
+Fixed: Issue #393: The $HOST in mail alert may be incorrect if FQDN hostname cannot be found.
+
+Fixed: Issue #396: Disable CLI colors if the output is not tty.
+
+Fixed: Issue #400: Clarify network tests documentation.
+
+Fixed: Issue #403: If the sender address for monit alert was overriden by "set mail-format" statement,
+don't try to resolve the hostname to FQDN.
+
+Fixed: Issue #420: Monit doesn't check service on startup when "every X cycles" is used.
+
+Fixed: Issue #428: Spelling fixes.
+
+Fixed: Issue #431: Change charset in emails to UTF-8.
+
+Fixed: Return syntax error if send/expect statement is used in the context of other protocol test.
+
+Fixed: Monit HTTP GUI: The port and unixsocket options are now position independent in the "set httpd"
+context.
+
+Fixed: If the resource check is disabled (for example because the user doesn't have privileges to
+read the data), emit just warning on startup.
+
+Fixed: Solaris: Subtract ZFS ARC size from the system memory usage, so monit can display memory used
+by applications (ZFS ARC will return memory to the system when needed).
+
+Fixed: Some linux versions logged "Skipping redundant host 'localhost'" warning in the case that the
+/etc/hosts contained localhost entry for both "127.0.0.1" (IPv4 loopback) and "::1" (IPv6 loopback).
+
+Fixed: Allow quoted service names in "depends on" statement.
+
 
 Version 5.18
 
@@ -1368,8 +1484,8 @@ BUGFIXES:
   Monit will not accept new action and return temporary error until
   the previous action completed.
 
-* If process resource usage gathering failed, retry next cycle as the
-  error can be temporary.
+* If process resource usage data collection failed, retry next cycle
+  as the error can be temporary.
 
 * Fixed sporadic failures when SSL was used.
 

@@ -54,10 +54,12 @@ boolean_t check_host(const char *hostname);
  * addresses
  * @param address the local address the server will bind to
  * @param port The localhost port number to open
+ * @param family The socket family to use
  * @param backlog The maximum queue length for incomming connections
- * @return The socket ready for accept, or -1 if an error occured.
+ * @param error Error buffer
+ * @return The socket ready for accept or -1 if failed
  */
-int create_server_socket(const char *address, int port, int backlog);
+int create_server_socket_tcp(const char *address, int port, Socket_Family family, int backlog, char error[STRLEN]);
 
 
 /**
@@ -65,9 +67,10 @@ int create_server_socket(const char *address, int port, int backlog);
  * socket path, with the specified backlog.
  * @param address the path to the unix socket
  * @param backlog The maximum queue length for incomming connections
- * @return The socket ready for accept, or -1 if an error occured.
+ * @param error Error buffer
+ * @return The socket ready for accept or -1 if failed
  */
-int create_server_socket_unix(const char *path, int backlog);
+int create_server_socket_unix(const char *path, int backlog, char error[STRLEN]);
 
 
 /**

@@ -68,6 +68,7 @@
 #include <limits.h>
 #endif
 
+#include "monit.h"
 #include "processor.h"
 #include "base64.h"
 
@@ -110,7 +111,7 @@ static void destroy_entry(void *);
 static char *get_date(char *, int);
 static char *get_server(char *, int);
 static void create_headers(HttpRequest);
-static void send_response(HttpResponse);
+static void send_response(HttpRequest, HttpResponse);
 static boolean_t basic_authenticate(HttpRequest);
 static void done(HttpRequest, HttpResponse);
 static void destroy_HttpRequest(HttpRequest);
@@ -217,7 +218,7 @@ void send_error(HttpRequest req, HttpResponse res, int code, const char *msg, ..
         va_end(ap);
         escapeHTML(res->outputbuffer, message);
         if (code != SC_UNAUTHORIZED) // We log details in basic_authenticate() already, no need to log generic error sent to client here
-                LogError("HttpRequest: error -- client %s: %s %d %s\n", Socket_getRemoteHost(req->S), SERVER_PROTOCOL, code, message);
+                LogError("HttpRequest: error -- client [%s]: %s %d %s\n", NVLSTR(Socket_getRemoteHost(req->S)), SERVER_PROTOCOL, code, message);
         FREE(message);
         char server[STRLEN];
         StringBuffer_append(res->outputbuffer,
@@ -240,7 +241,7 @@ void send_error(HttpRequest req, HttpResponse res, int code, const char *msg, ..
  * @param name Header key name
  * @param value Header key value
  */
-void set_header(HttpResponse res, const char *name, const char *value) {
+void set_header(HttpResponse res, const char *name, const char *value, ...) {
         HttpHeader h = NULL;
 
         ASSERT(res);
@@ -248,7 +249,10 @@ void set_header(HttpResponse res, const char *name, const char *value) {
 
         NEW(h);
         h->name = Str_dup(name);
-        h->value = Str_dup(value);
+        va_list ap;
+        va_start(ap, value);
+        h->value = Str_vcat(value, ap);
+        va_end(ap);
         if (res->headers) {
                 HttpHeader n, p;
                 for (n = p = res->headers; p; n = p, p = p->next) {
@@ -284,7 +288,7 @@ void set_status(HttpResponse res, int code) {
  * @param mime Mime content type, e.g. text/html
  */
 void set_content_type(HttpResponse res, const char *mime) {
-        set_header(res, "Content-Type", mime);
+        set_header(res, "Content-Type", "%s", mime);
 }
 
 
@@ -441,6 +445,7 @@ static void do_service(Socket_T s) {
                 if (Run.httpd.flags & Httpd_Ssl)
                         set_header(res, "Strict-Transport-Security", "max-age=63072000; includeSubdomains; preload");
                 if (is_authenticated(req, res)) {
+                        set_header(res, "Set-Cookie", "securitytoken=%s; Max-Age=600; HttpOnly; SameSite=strict%s", res->token, Run.httpd.flags & Httpd_Ssl ? "; Secure" : "");
                         if (IS(req->method, METHOD_GET))
                                 Impl.doGet(req, res);
                         else if (IS(req->method, METHOD_POST))
@@ -448,7 +453,7 @@ static void do_service(Socket_T s) {
                         else
                                 send_error(req, res, SC_NOT_IMPLEMENTED, "Method not implemented");
                 }
-                send_response(res);
+                send_response(req, res);
         }
         done(req, res);
 }
@@ -479,29 +484,41 @@ static char *get_server(char *result, int size) {
  * Send the response to the client. If the response has already been
  * commited, this function does nothing.
  */
-static void send_response(HttpResponse res) {
+static void send_response(HttpRequest req, HttpResponse res) {
         Socket_T S = res->S;
 
         if (! res->is_committed) {
                 char date[STRLEN];
                 char server[STRLEN];
+#ifdef HAVE_LIBZ
+                const char *acceptEncoding = get_header(req, "Accept-Encoding");
+                boolean_t canCompress = acceptEncoding && Str_sub(acceptEncoding, "gzip") ? true : false;
+#else
+                boolean_t canCompress = false;
+#endif
+                const void *body = NULL;
+                size_t bodyLength = 0;
+                if (canCompress) {
+                        body = StringBuffer_toCompressed(res->outputbuffer, 6, &bodyLength);
+                        set_header(res, "Content-Encoding", "gzip");
+                } else {
+                        body = StringBuffer_toString(res->outputbuffer);
+                        bodyLength = StringBuffer_length(res->outputbuffer);
+                }
                 char *headers = get_headers(res);
-                int length = StringBuffer_length(res->outputbuffer);
-
                 res->is_committed = true;
                 get_date(date, STRLEN);
                 get_server(server, STRLEN);
-                Socket_print(S, "%s %d %s\r\n", res->protocol, res->status,
-                             res->status_msg);
+                Socket_print(S, "%s %d %s\r\n", res->protocol, res->status, res->status_msg);
                 Socket_print(S, "Date: %s\r\n", date);
                 Socket_print(S, "Server: %s\r\n", server);
-                Socket_print(S, "Content-Length: %d\r\n", length);
+                Socket_print(S, "Content-Length: %zu\r\n", bodyLength);
                 Socket_print(S, "Connection: close\r\n");
                 if (headers)
                         Socket_print(S, "%s", headers);
                 Socket_print(S, "\r\n");
-                if (length)
-                        Socket_write(S, (unsigned char *)StringBuffer_toString(res->outputbuffer), length);
+                if (bodyLength)
+                        Socket_write(S, (unsigned char *)body, bodyLength);
                 FREE(headers);
         }
 }
@@ -561,6 +578,7 @@ static HttpResponse create_HttpResponse(Socket_T S) {
         res->is_committed = false;
         res->protocol = SERVER_PROTOCOL;
         res->status_msg = get_status_string(SC_OK);
+        Util_getToken(res->token);
         return res;
 }
 
@@ -714,6 +732,31 @@ static boolean_t is_authenticated(HttpRequest req, HttpResponse res) {
                         return false;
                 }
         }
+        if (IS(req->method, METHOD_POST)) {
+                // Check CSRF double-submit cookie (https://www.owasp.org/index.php/Cross-Site_Request_Forgery_(CSRF)_Prevention_Cheat_Sheet#Double_Submit_Cookie)
+                const char *cookie = get_header(req, "Cookie");
+                const char *token = get_parameter(req, "securitytoken");
+                if (! cookie) {
+                        LogError("HttpRequest: access denied -- client [%s]: missing CSRF token cookie\n", NVLSTR(Socket_getRemoteHost(req->S)));
+                        send_error(req, res, SC_FORBIDDEN, "Invalid CSRF Token");
+                        return false;
+                }
+                if (! token) {
+                        LogError("HttpRequest: access denied -- client [%s]: missing CSRF token in HTTP parameter\n", NVLSTR(Socket_getRemoteHost(req->S)));
+                        send_error(req, res, SC_FORBIDDEN, "Invalid CSRF Token");
+                        return false;
+                }
+                if (! Str_startsWith(cookie, "securitytoken=")) {
+                        LogError("HttpRequest: access denied -- client [%s]: no CSRF token in cookie\n", NVLSTR(Socket_getRemoteHost(req->S)));
+                        send_error(req, res, SC_FORBIDDEN, "Invalid CSRF Token");
+                        return false;
+                }
+                if (Str_compareConstantTime(cookie + 14, token)) {
+                        LogError("HttpRequest: access denied -- client [%s]: CSRF token mismatch\n", NVLSTR(Socket_getRemoteHost(req->S)));
+                        send_error(req, res, SC_FORBIDDEN, "Invalid CSRF Token");
+                        return false;
+                }
+        }
         return true;
 }
 
@@ -725,34 +768,34 @@ static boolean_t is_authenticated(HttpRequest req, HttpResponse res) {
 static boolean_t basic_authenticate(HttpRequest req) {
         const char *credentials = get_header(req, "Authorization");
         if (! (credentials && Str_startsWith(credentials, "Basic "))) {
-                LogError("HttpRequest: access denied -- client %s: missing or invalid Authorization header\n", Socket_getRemoteHost(req->S));
+                LogError("HttpRequest: access denied -- client [%s]: missing or invalid Authorization header\n", NVLSTR(Socket_getRemoteHost(req->S)));
                 return false;
         }
         char buf[STRLEN] = {0};
         strncpy(buf, &credentials[6], sizeof(buf) - 1);
         char uname[STRLEN] = {0};
         if (decode_base64((unsigned char *)uname, buf) <= 0) {
-                LogError("HttpRequest: access denied -- client %s: invalid Authorization header\n", Socket_getRemoteHost(req->S));
+                LogError("HttpRequest: access denied -- client [%s]: invalid Authorization header\n", NVLSTR(Socket_getRemoteHost(req->S)));
                 return false;
         }
         if (! *uname) {
-                LogError("HttpRequest: access denied -- client %s: empty username\n", Socket_getRemoteHost(req->S));
+                LogError("HttpRequest: access denied -- client [%s]: empty username\n", NVLSTR(Socket_getRemoteHost(req->S)));
                 return false;
         }
         char *password = password = strchr(uname, ':');
         if (! password || ! *password) {
-                LogError("HttpRequest: access denied -- client %s: empty password\n", Socket_getRemoteHost(req->S));
+                LogError("HttpRequest: access denied -- client [%s]: empty password\n", NVLSTR(Socket_getRemoteHost(req->S)));
                 return false;
         }
         *password++ = 0;
         /* Check if user exist */
         if (! Util_getUserCredentials(uname)) {
-                LogError("HttpRequest: access denied -- client %s: unknown user '%s'\n", Socket_getRemoteHost(req->S), uname);
+                LogError("HttpRequest: access denied -- client [%s]: unknown user '%s'\n", NVLSTR(Socket_getRemoteHost(req->S)), uname);
                 return false;
         }
         /* Check if user has supplied the right password */
         if (! Util_checkCredentials(uname,  password)) {
-                LogError("HttpRequest: access denied -- client %s: wrong password for user '%s'\n", Socket_getRemoteHost(req->S), uname);
+                LogError("HttpRequest: access denied -- client [%s]: wrong password for user '%s'\n", NVLSTR(Socket_getRemoteHost(req->S)), uname);
                 return false;
         }
         req->remote_user = Str_dup(uname);
@@ -788,7 +831,7 @@ static void internal_error(Socket_T S, int status, char *msg) {
                      "</body></html>\r\n",
                      SERVER_PROTOCOL, status, status_msg, date, server,
                      status_msg, status_msg, msg, SERVER_URL, server);
-        DEBUG("HttpRequest: error -- client %s: %s %d %s\n", Socket_getRemoteHost(S), SERVER_PROTOCOL, status, msg ? msg : status_msg);
+        DEBUG("HttpRequest: error -- client [%s]: %s %d %s\n", NVLSTR(Socket_getRemoteHost(S)), SERVER_PROTOCOL, status, msg ? msg : status_msg);
 }
 
 
@@ -814,7 +857,7 @@ static HttpParameter parse_parameters(char *query_string) {
                                 goto error;
                         NEW(p);
                         p->name = key;
-                        p->value = value;
+                        p->value = Util_urlDecode(value);
                         p->next = head;
                         head = p;
                         key = NULL;

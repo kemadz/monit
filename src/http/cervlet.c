@@ -99,7 +99,7 @@
 #define STATUS2     "/_status2"
 #define SUMMARY     "/_summary"
 #define REPORT      "/_report"
-#define RUN         "/_runtime"
+#define RUNTIME     "/_runtime"
 #define VIEWLOG     "/_viewlog"
 #define DOACTION    "/_doaction"
 #define FAVICON     "/favicon.ico"
@@ -118,25 +118,27 @@ static void doGet(HttpRequest, HttpResponse);
 static void doPost(HttpRequest, HttpResponse);
 static void do_head(HttpResponse res, const char *path, const char *name, int refresh);
 static void do_foot(HttpResponse res);
-static void do_home(HttpRequest, HttpResponse);
-static void do_home_system(HttpRequest, HttpResponse);
-static void do_home_filesystem(HttpRequest, HttpResponse);
-static void do_home_directory(HttpRequest, HttpResponse);
-static void do_home_file(HttpRequest, HttpResponse);
-static void do_home_fifo(HttpRequest, HttpResponse);
-static void do_home_net(HttpRequest, HttpResponse);
-static void do_home_process(HttpRequest, HttpResponse);
-static void do_home_program(HttpRequest, HttpResponse);
-static void do_home_host(HttpRequest, HttpResponse);
-static void do_about(HttpRequest, HttpResponse);
-static void do_ping(HttpRequest, HttpResponse);
-static void do_getid(HttpRequest, HttpResponse);
+static void do_home(HttpResponse);
+static void do_home_system(HttpResponse);
+static void do_home_filesystem(HttpResponse);
+static void do_home_directory(HttpResponse);
+static void do_home_file(HttpResponse);
+static void do_home_fifo(HttpResponse);
+static void do_home_net(HttpResponse);
+static void do_home_process(HttpResponse);
+static void do_home_program(HttpResponse);
+static void do_home_host(HttpResponse);
+static void do_about(HttpResponse);
+static void do_ping(HttpResponse);
+static void do_getid(HttpResponse);
 static void do_runtime(HttpRequest, HttpResponse);
 static void do_viewlog(HttpRequest, HttpResponse);
-static void handle_action(HttpRequest, HttpResponse);
-static void handle_do_action(HttpRequest, HttpResponse);
-static void handle_run(HttpRequest, HttpResponse);
-static void is_monit_running(HttpRequest, HttpResponse);
+static void handle_service(HttpRequest, HttpResponse);
+static void handle_service_action(HttpRequest, HttpResponse);
+static void handle_doaction(HttpRequest, HttpResponse);
+static void handle_runtime(HttpRequest, HttpResponse);
+static void handle_runtime_action(HttpRequest, HttpResponse);
+static void is_monit_running(HttpResponse);
 static void do_service(HttpRequest, HttpResponse, Service_T);
 static void print_alerts(HttpResponse, Mail_T);
 static void print_buttons(HttpRequest, HttpResponse, Service_T);
@@ -382,7 +384,7 @@ static void _printStatus(Output_Type type, HttpResponse res, Service_T s) {
                         case Service_Program:
                                 if (s->program->started) {
                                         _formatStatus("last exit value", Event_Status, type, res, s, true, "%d", s->program->exitStatus);
-                                        _formatStatus("last output", Event_Status, type, res, s, StringBuffer_length(s->program->output), "%s", StringBuffer_toString(s->program->output)); //FIXME: use both columns
+                                        _formatStatus("last output", Event_Status, type, res, s, StringBuffer_length(s->program->output), "%s", StringBuffer_toString(s->program->output));
                                 }
                                 break;
 
@@ -420,8 +422,10 @@ static void _printStatus(Output_Type type, HttpResponse res, Service_T s) {
  */
 static void doPost(HttpRequest req, HttpResponse res) {
         set_content_type(res, "text/html");
-        if (ACTION(RUN))
-                handle_run(req, res);
+        if (ACTION(RUNTIME))
+                handle_runtime_action(req, res);
+        else if (ACTION(VIEWLOG))
+                do_viewlog(req, res);
         else if (ACTION(STATUS))
                 print_status(req, res, 1);
         else if (ACTION(STATUS2))
@@ -431,9 +435,9 @@ static void doPost(HttpRequest req, HttpResponse res) {
         else if (ACTION(REPORT))
                 _printReport(req, res);
         else if (ACTION(DOACTION))
-                handle_do_action(req, res);
+                handle_doaction(req, res);
         else
-                handle_action(req, res);
+                handle_service_action(req, res);
 }
 
 
@@ -445,22 +449,20 @@ static void doGet(HttpRequest req, HttpResponse res) {
         set_content_type(res, "text/html");
         if (ACTION(HOME)) {
                 LOCK(Run.mutex)
-                do_home(req, res);
+                do_home(res);
                 END_LOCK;
-        } else if (ACTION(RUN)) {
-                handle_run(req, res);
+        } else if (ACTION(RUNTIME)) {
+                handle_runtime(req, res);
         } else if (ACTION(TEST)) {
-                is_monit_running(req, res);
-        } else if (ACTION(VIEWLOG)) {
-                do_viewlog(req, res);
+                is_monit_running(res);
         } else if (ACTION(ABOUT)) {
-                do_about(req, res);
+                do_about(res);
         } else if (ACTION(FAVICON)) {
                 printFavicon(res);
         } else if (ACTION(PING)) {
-                do_ping(req, res);
+                do_ping(res);
         } else if (ACTION(GETID)) {
-                do_getid(req, res);
+                do_getid(res);
         } else if (ACTION(STATUS)) {
                 print_status(req, res, 1);
         } else if (ACTION(STATUS2)) {
@@ -469,10 +471,8 @@ static void doGet(HttpRequest req, HttpResponse res) {
                 print_summary(req, res);
         } else if (ACTION(REPORT)) {
                 _printReport(req, res);
-        } else if (ACTION(DOACTION)) {
-                handle_do_action(req, res);
         } else {
-                handle_action(req, res);
+                handle_service(req, res);
         }
 }
 
@@ -480,7 +480,7 @@ static void doGet(HttpRequest req, HttpResponse res) {
 /* ----------------------------------------------------------------- Helpers */
 
 
-static void is_monit_running(HttpRequest req, HttpResponse res) {
+static void is_monit_running(HttpResponse res) {
         set_status(res, exist_daemon() ? SC_OK : SC_GONE);
 }
 
@@ -551,6 +551,7 @@ static void do_head(HttpResponse res, const char *path, const char *name, int re
                             "<meta HTTP-EQUIV='REFRESH' CONTENT=%d> "\
                             "<meta HTTP-EQUIV='Expires' Content=0> "\
                             "<meta HTTP-EQUIV='Pragma' CONTENT='no-cache'> "\
+                            "<meta charset='UTF-8'>" \
                             "<link rel='shortcut icon' href='favicon.ico'>"\
                             "</head>"\
                             "<body><div id='wrap'><div id='main'>" \
@@ -579,7 +580,7 @@ static void do_foot(HttpResponse res) {
 }
 
 
-static void do_home(HttpRequest req, HttpResponse res) {
+static void do_home(HttpResponse res) {
         do_head(res, "", "", Run.polltime);
         StringBuffer_append(res->outputbuffer,
                             "<table id='header' width='100%%'>"
@@ -590,21 +591,21 @@ static void do_home(HttpRequest req, HttpResponse res) {
                             " </tr>"
                             "</table>", Run.system->name);
 
-        do_home_system(req, res);
-        do_home_process(req, res);
-        do_home_program(req, res);
-        do_home_filesystem(req, res);
-        do_home_file(req, res);
-        do_home_fifo(req, res);
-        do_home_directory(req, res);
-        do_home_net(req, res);
-        do_home_host(req, res);
+        do_home_system(res);
+        do_home_process(res);
+        do_home_program(res);
+        do_home_filesystem(res);
+        do_home_file(res);
+        do_home_fifo(res);
+        do_home_directory(res);
+        do_home_net(res);
+        do_home_host(res);
 
         do_foot(res);
 }
 
 
-static void do_about(HttpRequest req, HttpResponse res) {
+static void do_about(HttpResponse res) {
         StringBuffer_append(res->outputbuffer,
                             "<html><head><title>about monit</title></head><body bgcolor=white>"
                             "<br><h1><center><a href='http://mmonit.com/monit/'>"
@@ -628,12 +629,12 @@ static void do_about(HttpRequest req, HttpResponse res) {
 }
 
 
-static void do_ping(HttpRequest req, HttpResponse res) {
+static void do_ping(HttpResponse res) {
         StringBuffer_append(res->outputbuffer, "pong");
 }
 
 
-static void do_getid(HttpRequest req, HttpResponse res) {
+static void do_getid(HttpResponse res) {
         StringBuffer_append(res->outputbuffer, "%s", Run.id);
 }
 
@@ -755,6 +756,12 @@ static void do_runtime(HttpRequest req, HttpResponse res) {
         StringBuffer_append(res->outputbuffer, "<tr><td>Limit for HTTP content buffer</td><td>%s</td></tr>", Str_bytesToSize(Run.limits.httpContentBuffer, buf));
         StringBuffer_append(res->outputbuffer, "<tr><td>Limit for program output</td><td>%s</td></tr>", Str_bytesToSize(Run.limits.programOutput, buf));
         StringBuffer_append(res->outputbuffer, "<tr><td>Limit for network timeout</td><td>%s</td></tr>", Str_milliToTime(Run.limits.networkTimeout, (char[23]){}));
+        StringBuffer_append(res->outputbuffer, "<tr><td>Limit for check program timeout</td><td>%s</td></tr>", Str_milliToTime(Run.limits.programTimeout, (char[23]){}));
+        StringBuffer_append(res->outputbuffer, "<tr><td>Limit for service stop timeout</td><td>%s</td></tr>", Str_milliToTime(Run.limits.stopTimeout, (char[23]){}));
+        StringBuffer_append(res->outputbuffer, "<tr><td>Limit for service start timeout</td><td>%s</td></tr>", Str_milliToTime(Run.limits.startTimeout, (char[23]){}));
+        StringBuffer_append(res->outputbuffer, "<tr><td>Limit for service restart timeout</td><td>%s</td></tr>", Str_milliToTime(Run.limits.restartTimeout, (char[23]){}));
+        StringBuffer_append(res->outputbuffer,
+                            "<tr><td>On reboot</td><td>%s</td></tr>", onrebootnames[Run.onreboot]);
         StringBuffer_append(res->outputbuffer,
                             "<tr><td>Poll time</td><td>%d seconds with start delay %d seconds</td></tr>",
                             Run.polltime, Run.startdelay);
@@ -797,22 +804,40 @@ static void do_runtime(HttpRequest req, HttpResponse res) {
         }
         StringBuffer_append(res->outputbuffer,
                             "<tr><td>httpd auth. style</td><td>%s</td></tr>",
-                            Run.httpd.credentials && Engine_hasHostsAllow() ? "Basic Authentication and Host/Net allow list" : Run.httpd.credentials ? "Basic Authentication" : Engine_hasHostsAllow() ? "Host/Net allow list" : "No authentication");
+                            Run.httpd.credentials && Engine_hasAllow() ? "Basic Authentication and Host/Net allow list" : Run.httpd.credentials ? "Basic Authentication" : Engine_hasAllow() ? "Host/Net allow list" : "No authentication");
         print_alerts(res, Run.maillist);
         StringBuffer_append(res->outputbuffer, "</table>");
         if (! is_readonly(req)) {
                 StringBuffer_append(res->outputbuffer,
                                     "<table id='buttons'><tr>");
                 StringBuffer_append(res->outputbuffer,
-                                    "<td style='color:red;'><form method=POST action='_runtime'>Stop Monit http server? "
-                                    "<input type=hidden name='action' value='stop'><input type=submit value='Go'></form></td>");
+                                    "<td style='color:red;'>"
+                                    "<form method=POST action='_runtime'>Stop Monit http server? "
+                                    "<input type=hidden name='securitytoken' value='%s'>"
+                                    "<input type=hidden name='action' value='stop'>"
+                                    "<input type=submit value='Go'>"
+                                    "</form>"
+                                    "</td>",
+                                    res->token);
                 StringBuffer_append(res->outputbuffer,
-                                    "<td><form method=POST action='_runtime'>Force validate now? <input type=hidden name='action' value='validate'>"
-                                    "<input type=submit value='Go'></form></td>");
+                                    "<td>"
+                                    "<form method=POST action='_runtime'>Force validate now? "
+                                    "<input type=hidden name='securitytoken' value='%s'>"
+                                    "<input type=hidden name='action' value='validate'>"
+                                    "<input type=submit value='Go'>"
+                                    "</form>"
+                                    "</td>",
+                                    res->token);
 
                 if ((Run.flags & Run_Log) && ! (Run.flags & Run_UseSyslog)) {
                         StringBuffer_append(res->outputbuffer,
-                                            "<td><form method=GET action='_viewlog'>View Monit logfile? <input type=submit value='Go'></form></td>");
+                                            "<td>"
+                                            "<form method=POST action='_viewlog'>View Monit logfile? "
+                                            "<input type=hidden name='securitytoken' value='%s'>"
+                                            "<input type=submit value='Go'>"
+                                            "</form>"
+                                            "</td>",
+                                            res->token);
                 }
                 StringBuffer_append(res->outputbuffer,
                                     "</tr></table>");
@@ -823,7 +848,7 @@ static void do_runtime(HttpRequest req, HttpResponse res) {
 
 static void do_viewlog(HttpRequest req, HttpResponse res) {
         if (is_readonly(req)) {
-                send_error(req, res, SC_FORBIDDEN, "You do not have sufficent privileges to access this page");
+                send_error(req, res, SC_FORBIDDEN, "You do not have sufficient privileges to access this page");
                 return;
         }
         do_head(res, "_viewlog", "View log", 100);
@@ -860,7 +885,18 @@ static void do_viewlog(HttpRequest req, HttpResponse res) {
 }
 
 
-static void handle_action(HttpRequest req, HttpResponse res) {
+static void handle_service(HttpRequest req, HttpResponse res) {
+        char *name = req->url;
+        Service_T s = Util_getService(++name);
+        if (! s) {
+                send_error(req, res, SC_NOT_FOUND, "There is no service named \"%s\"", name ? name : "");
+                return;
+        }
+        do_service(req, res, s);
+}
+
+
+static void handle_service_action(HttpRequest req, HttpResponse res) {
         char *name = req->url;
         Service_T s = Util_getService(++name);
         if (! s) {
@@ -870,7 +906,7 @@ static void handle_action(HttpRequest req, HttpResponse res) {
         const char *action = get_parameter(req, "action");
         if (action) {
                 if (is_readonly(req)) {
-                        send_error(req, res, SC_FORBIDDEN, "You do not have sufficent privileges to access this page");
+                        send_error(req, res, SC_FORBIDDEN, "You do not have sufficient privileges to access this page");
                         return;
                 }
                 Action_Type doaction = Util_getAction(action);
@@ -892,15 +928,14 @@ static void handle_action(HttpRequest req, HttpResponse res) {
 }
 
 
-static void handle_do_action(HttpRequest req, HttpResponse res) {
+static void handle_doaction(HttpRequest req, HttpResponse res) {
         Service_T s;
         Action_Type doaction = Action_Ignored;
         const char *action = get_parameter(req, "action");
         const char *token = get_parameter(req, "token");
-
         if (action) {
                 if (is_readonly(req)) {
-                        send_error(req, res, SC_FORBIDDEN, "You do not have sufficent privileges to access this page");
+                        send_error(req, res, SC_FORBIDDEN, "You do not have sufficient privileges to access this page");
                         return;
                 }
                 if ((doaction = Util_getAction(action)) == Action_Ignored) {
@@ -935,11 +970,18 @@ static void handle_do_action(HttpRequest req, HttpResponse res) {
 }
 
 
-static void handle_run(HttpRequest req, HttpResponse res) {
+static void handle_runtime(HttpRequest req, HttpResponse res) {
+        LOCK(Run.mutex)
+        do_runtime(req, res);
+        END_LOCK;
+}
+
+
+static void handle_runtime_action(HttpRequest req, HttpResponse res) {
         const char *action = get_parameter(req, "action");
         if (action) {
                 if (is_readonly(req)) {
-                        send_error(req, res, SC_FORBIDDEN, "You do not have sufficent privileges to access this page");
+                        send_error(req, res, SC_FORBIDDEN, "You do not have sufficient privileges to access this page");
                         return;
                 }
                 if (IS(action, "validate")) {
@@ -952,9 +994,7 @@ static void handle_run(HttpRequest req, HttpResponse res) {
                         return;
                 }
         }
-        LOCK(Run.mutex)
-        do_runtime(req, res);
-        END_LOCK;
+        handle_runtime(req, res);
 }
 
 
@@ -1004,50 +1044,30 @@ static void do_service(HttpRequest req, HttpResponse res, Service_T s) {
                 }
         }
         if (s->start) {
-                int i = 0;
-                StringBuffer_append(res->outputbuffer, "<tr><td>Start program</td><td>'");
-                while (s->start->arg[i]) {
-                        if (i)
-                                StringBuffer_append(res->outputbuffer, " ");
-                        StringBuffer_append(res->outputbuffer, "%s", s->start->arg[i++]);
-                }
-                StringBuffer_append(res->outputbuffer, "'");
+                StringBuffer_append(res->outputbuffer, "<tr><td>Start program</td><td>'%s'", Util_commandDescription(s->start, (char[STRLEN]){}));
                 if (s->start->has_uid)
                         StringBuffer_append(res->outputbuffer, " as uid %d", s->start->uid);
                 if (s->start->has_gid)
                         StringBuffer_append(res->outputbuffer, " as gid %d", s->start->gid);
-                StringBuffer_append(res->outputbuffer, " timeout %d second(s)", s->start->timeout);
+                StringBuffer_append(res->outputbuffer, " timeout %s", Str_milliToTime(s->start->timeout, (char[23]){}));
                 StringBuffer_append(res->outputbuffer, "</td></tr>");
         }
         if (s->stop) {
-                int i = 0;
-                StringBuffer_append(res->outputbuffer, "<tr><td>Stop program</td><td>'");
-                while (s->stop->arg[i]) {
-                        if (i)
-                                StringBuffer_append(res->outputbuffer, " ");
-                        StringBuffer_append(res->outputbuffer, "%s", s->stop->arg[i++]);
-                }
-                StringBuffer_append(res->outputbuffer, "'");
+                StringBuffer_append(res->outputbuffer, "<tr><td>Stop program</td><td>'%s'", Util_commandDescription(s->stop, (char[STRLEN]){}));
                 if (s->stop->has_uid)
                         StringBuffer_append(res->outputbuffer, " as uid %d", s->stop->uid);
                 if (s->stop->has_gid)
                         StringBuffer_append(res->outputbuffer, " as gid %d", s->stop->gid);
-                StringBuffer_append(res->outputbuffer, " timeout %d second(s)", s->stop->timeout);
+                StringBuffer_append(res->outputbuffer, " timeout %s", Str_milliToTime(s->stop->timeout, (char[23]){}));
                 StringBuffer_append(res->outputbuffer, "</td></tr>");
         }
         if (s->restart) {
-                int i = 0;
-                StringBuffer_append(res->outputbuffer, "<tr><td>Restart program</td><td>'");
-                while (s->restart->arg[i]) {
-                        if (i) StringBuffer_append(res->outputbuffer, " ");
-                        StringBuffer_append(res->outputbuffer, "%s", s->restart->arg[i++]);
-                }
-                StringBuffer_append(res->outputbuffer, "'");
+                StringBuffer_append(res->outputbuffer, "<tr><td>Restart program</td><td>'%s'", Util_commandDescription(s->restart, (char[STRLEN]){}));
                 if (s->restart->has_uid)
                         StringBuffer_append(res->outputbuffer, " as uid %d", s->restart->uid);
                 if (s->restart->has_gid)
                         StringBuffer_append(res->outputbuffer, " as gid %d", s->restart->gid);
-                StringBuffer_append(res->outputbuffer, " timeout %d second(s)", s->restart->timeout);
+                StringBuffer_append(res->outputbuffer, " timeout %s", Str_milliToTime(s->restart->timeout, (char[23]){}));
                 StringBuffer_append(res->outputbuffer, "</td></tr>");
         }
         if (s->every.type != Every_Cycle) {
@@ -1096,7 +1116,7 @@ static void do_service(HttpRequest req, HttpResponse res, Service_T s) {
 }
 
 
-static void do_home_system(HttpRequest req, HttpResponse res) {
+static void do_home_system(HttpResponse res) {
         Service_T s = Run.system;
         char buf[STRLEN];
 
@@ -1149,7 +1169,7 @@ static void do_home_system(HttpRequest req, HttpResponse res) {
 }
 
 
-static void do_home_process(HttpRequest req, HttpResponse res) {
+static void do_home_process(HttpResponse res) {
         char      buf[STRLEN];
         boolean_t on = true;
         boolean_t header = true;
@@ -1201,7 +1221,7 @@ static void do_home_process(HttpRequest req, HttpResponse res) {
 }
 
 
-static void do_home_program(HttpRequest req, HttpResponse res) {
+static void do_home_program(HttpResponse res) {
         char buf[STRLEN];
         boolean_t on = true;
         boolean_t header = true;
@@ -1271,7 +1291,7 @@ static void do_home_program(HttpRequest req, HttpResponse res) {
 }
 
 
-static void do_home_net(HttpRequest req, HttpResponse res) {
+static void do_home_net(HttpResponse res) {
         char buf[STRLEN];
         boolean_t on = true;
         boolean_t header = true;
@@ -1312,7 +1332,7 @@ static void do_home_net(HttpRequest req, HttpResponse res) {
 }
 
 
-static void do_home_filesystem(HttpRequest req, HttpResponse res) {
+static void do_home_filesystem(HttpResponse res) {
         char buf[STRLEN];
         boolean_t on = true;
         boolean_t header = true;
@@ -1365,7 +1385,7 @@ static void do_home_filesystem(HttpRequest req, HttpResponse res) {
 }
 
 
-static void do_home_file(HttpRequest req, HttpResponse res) {
+static void do_home_file(HttpResponse res) {
         char buf[STRLEN];
         boolean_t on = true;
         boolean_t header = true;
@@ -1418,7 +1438,7 @@ static void do_home_file(HttpRequest req, HttpResponse res) {
 }
 
 
-static void do_home_fifo(HttpRequest req, HttpResponse res) {
+static void do_home_fifo(HttpResponse res) {
         char buf[STRLEN];
         boolean_t on = true;
         boolean_t header = true;
@@ -1465,7 +1485,7 @@ static void do_home_fifo(HttpRequest req, HttpResponse res) {
 }
 
 
-static void do_home_directory(HttpRequest req, HttpResponse res) {
+static void do_home_directory(HttpResponse res) {
         char buf[STRLEN];
         boolean_t on = true;
         boolean_t header = true;
@@ -1512,7 +1532,7 @@ static void do_home_directory(HttpRequest req, HttpResponse res) {
 }
 
 
-static void do_home_host(HttpRequest req, HttpResponse res) {
+static void do_home_host(HttpResponse res) {
         char buf[STRLEN];
         boolean_t on = true;
         boolean_t header = true;
@@ -1677,29 +1697,47 @@ static void print_buttons(HttpRequest req, HttpResponse res, Service_T s) {
         /* Start program */
         if (s->start)
                 StringBuffer_append(res->outputbuffer,
-                                    "<td><form method=POST action=%s>"
+                                    "<td>"
+                                    "<form method=POST action=%s>"
+                                    "<input type=hidden name='securitytoken' value='%s'>"
                                     "<input type=hidden value='start' name=action>"
-                                    "<input type=submit value='Start service'></form></td>", s->name);
+                                    "<input type=submit value='Start service'>"
+                                    "</form>"
+                                    "</td>", s->name, res->token);
         /* Stop program */
         if (s->stop)
                 StringBuffer_append(res->outputbuffer,
-                                    "<td><form method=POST action=%s>"
+                                    "<td>"
+                                    "<form method=POST action=%s>"
+                                    "<input type=hidden name='securitytoken' value='%s'>"
                                     "<input type=hidden value='stop' name=action>"
-                                    "<input type=submit value='Stop service'></form></td>", s->name);
+                                    "<input type=submit value='Stop service'>"
+                                    "</form>"
+                                    "</td>", s->name, res->token);
         /* Restart program */
         if ((s->start && s->stop) || s->restart)
                 StringBuffer_append(res->outputbuffer,
-                                    "<td><form method=POST action=%s>"
+                                    "<td>"
+                                    "<form method=POST action=%s>"
+                                    "<input type=hidden name='securitytoken' value='%s'>"
                                     "<input type=hidden value='restart' name=action>"
-                                    "<input type=submit value='Restart service'></form></td>", s->name);
+                                    "<input type=submit value='Restart service'>"
+                                    "</form>"
+                                    "</td>", s->name, res->token);
         /* (un)monitor */
         StringBuffer_append(res->outputbuffer,
-                            "<td><form method=POST action=%s>"
-                            "<input type=hidden value='%s' name=action>"
-                            "<input type=submit value='%s'></form></td></tr></table>",
-                            s->name,
-                            s->monitor ? "unmonitor" : "monitor",
-                            s->monitor ? "Disable monitoring" : "Enable monitoring");
+                                    "<td>"
+                                    "<form method=POST action=%s>"
+                                    "<input type=hidden name='securitytoken' value='%s'>"
+                                    "<input type=hidden value='%s' name=action>"
+                                    "<input type=submit value='%s'>"
+                                    "</form>"
+                                    "</td>",
+                                    s->name,
+                                    res->token,
+                                    s->monitor ? "unmonitor" : "monitor",
+                                    s->monitor ? "Disable monitoring" : "Enable monitoring");
+        StringBuffer_append(res->outputbuffer, "</tr></table>");
 }
 
 
@@ -2037,7 +2075,7 @@ static void print_service_rules_ppid(HttpResponse res, Service_T s) {
 
 static void print_service_rules_program(HttpResponse res, Service_T s) {
         if (s->type == Service_Program) {
-                StringBuffer_append(res->outputbuffer, "<tr class='rule'><td>Program timeout</td><td>Terminate the program if not finished within %d seconds</td></tr>", s->program->timeout);
+                StringBuffer_append(res->outputbuffer, "<tr class='rule'><td>Program timeout</td><td>Terminate the program if not finished within %s</td></tr>", Str_milliToTime(s->program->timeout, (char[23]){}));
                 for (Status_T status = s->statuslist; status; status = status->next) {
                         StringBuffer_append(res->outputbuffer, "<tr class='rule'><td>Test Exit value</td><td>");
                         if (status->operator == Operator_Changed)
@@ -2183,7 +2221,7 @@ static void print_status(HttpRequest req, HttpResponse res, int version) {
         } else {
                 set_content_type(res, "text/plain");
 
-                StringBuffer_append(res->outputbuffer, "Monit uptime: %s\n", _getUptime(ProcessTree_getProcessUptime(getpid()), (char[256]){}));
+                StringBuffer_append(res->outputbuffer, "Monit %s uptime: %s\n\n", VERSION, _getUptime(ProcessTree_getProcessUptime(getpid()), (char[256]){}));
 
                 int found = 0;
                 const char *stringGroup = Util_urlDecode((char *)get_parameter(req, "group"));
@@ -2241,7 +2279,7 @@ static int _printServiceSummaryByType(Box_T t, Service_Type type) {
 static void print_summary(HttpRequest req, HttpResponse res) {
         set_content_type(res, "text/plain");
 
-        StringBuffer_append(res->outputbuffer, "Monit uptime: %s\n", _getUptime(ProcessTree_getProcessUptime(getpid()), (char[256]){}));
+        StringBuffer_append(res->outputbuffer, "Monit %s uptime: %s\n", VERSION, _getUptime(ProcessTree_getProcessUptime(getpid()), (char[256]){}));
 
         int found = 0;
         const char *stringGroup = Util_urlDecode((char *)get_parameter(req, "group"));

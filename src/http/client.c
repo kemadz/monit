@@ -75,7 +75,7 @@
 
 
 static void _argument(StringBuffer_T data, const char *name, const char *value) {
-        char *_value = Util_urlEncode((char *)value);
+        char *_value = Util_urlEncode((char *)value, true);
         StringBuffer_append(data, "%s%s=%s", StringBuffer_length(data) ? "&" : "", name, _value);
         FREE(_value);
 }
@@ -138,14 +138,18 @@ static void _parseHttpResponse(Socket_T S) {
 static void _send(Socket_T S, const char *request, StringBuffer_T data) {
         _argument(data, "format", "text");
         char *_auth = _getBasicAuthHeader();
+        MD_T token;
+        StringBuffer_append(data, "%ssecuritytoken=%s", StringBuffer_length(data) > 0 ? "&" : "", Util_getToken(token));
         int rv = Socket_print(S,
                 "POST %s HTTP/1.0\r\n"
                 "Content-Type: application/x-www-form-urlencoded\r\n"
+                "Cookie: securitytoken=%s\r\n"
                 "Content-Length: %d\r\n"
                  "%s"
                  "\r\n"
                  "%s",
                 request,
+                token,
                 StringBuffer_length(data),
                 _auth ? _auth : "",
                 StringBuffer_toString(data));
@@ -175,13 +179,12 @@ static boolean_t _client(const char *request, StringBuffer_T data) {
         }
         Socket_T S = NULL;
         if (Run.httpd.flags & Httpd_Net) {
-                // FIXME: Monit HTTP support IPv4 only currently ... when IPv6 is implemented change the family to Socket_Ip
                 SslOptions_T options = {
                         .flags = (Run.httpd.flags & Httpd_Ssl) ? SSL_Enabled : SSL_Disabled,
                         .clientpemfile = Run.httpd.socket.net.ssl.clientpem,
                         .allowSelfSigned = Run.httpd.flags & Httpd_AllowSelfSignedCertificates
                 };
-                S = Socket_create(Run.httpd.socket.net.address ? Run.httpd.socket.net.address : "localhost", Run.httpd.socket.net.port, Socket_Tcp, Socket_Ip4, options, Run.limits.networkTimeout);
+                S = Socket_create(Run.httpd.socket.net.address ? Run.httpd.socket.net.address : "localhost", Run.httpd.socket.net.port, Socket_Tcp, Socket_Ip, options, Run.limits.networkTimeout);
         } else if (Run.httpd.flags & Httpd_Unix) {
                 S = Socket_createUnix(Run.httpd.socket.unix.path, Socket_Tcp, Run.limits.networkTimeout);
         } else {

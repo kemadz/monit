@@ -81,7 +81,7 @@
 #include "system/Time.h"
 
 /**
- *  System dependent resource gathering code for Linux.
+ *  System dependent resource data collection code for Linux.
  *
  *  @file
  */
@@ -119,9 +119,6 @@ static time_t get_starttime() {
 
 
 boolean_t init_process_info_sysdep(void) {
-        char *ptr;
-        char  buf[4096];
-
         if ((hz = sysconf(_SC_CLK_TCK)) <= 0.) {
                 DEBUG("system statistic error -- cannot get hz: %s\n", STRERROR);
                 return false;
@@ -132,21 +129,6 @@ boolean_t init_process_info_sysdep(void) {
                 return false;
         }
 
-        if (! file_readProc(buf, sizeof(buf), "meminfo", -1, NULL)) {
-                DEBUG("system statistic error -- cannot read /proc/meminfo\n");
-                return false;
-        }
-        if (! (ptr = strstr(buf, "MemTotal:"))) {
-                DEBUG("system statistic error -- cannot get real memory amount\n");
-                return false;
-        }
-        long mem_max;
-        if (sscanf(ptr + 9, "%ld", &mem_max) != 1) {
-                DEBUG("system statistic error -- cannot get real memory amount\n");
-                return false;
-        }
-        systeminfo.mem_max = (uint64_t)mem_max * 1024;
-
         if ((systeminfo.cpus = sysconf(_SC_NPROCESSORS_CONF)) < 0) {
                 DEBUG("system statistic error -- cannot get cpu count: %s\n", STRERROR);
                 return false;
@@ -155,20 +137,38 @@ boolean_t init_process_info_sysdep(void) {
                 systeminfo.cpus = 1;
         }
 
-        if (! file_readProc(buf, sizeof(buf), "stat", -1, NULL)) {
-                DEBUG("system statistic error -- cannot read /proc/stat\n");
-                return false;
+        FILE *f = fopen("/proc/meminfo", "r");
+        if (f) {
+                char line[STRLEN];
+                systeminfo.mem_max = 0L;
+                while (fgets(line, sizeof(line), f)) {
+                        if (sscanf(line, "MemTotal: %"PRIu64, &systeminfo.mem_max) == 1) {
+                                systeminfo.mem_max *= 1024;
+                                break;
+                        }
+                }
+                fclose(f);
+                if (! systeminfo.mem_max)
+                        DEBUG("system statistic error -- cannot get real memory amount\n");
+        } else {
+                DEBUG("system statistic error -- cannot open /proc/meminfo\n");
         }
-        if (! (ptr = strstr(buf, "btime "))) {
-                DEBUG("system statistic error -- cannot get system boot time\n");
-                return false;
+
+        f = fopen("/proc/stat", "r");
+        if (f) {
+                char line[STRLEN];
+                systeminfo.booted = 0;
+                while (fgets(line, sizeof(line), f)) {
+                        if (sscanf(line, "btime %"PRIu64, &systeminfo.booted) == 1) {
+                                break;
+                        }
+                }
+                fclose(f);
+                if (! systeminfo.booted)
+                        DEBUG("system statistic error -- cannot get system boot time\n");
+        } else {
+                DEBUG("system statistic error -- cannot open /proc/stat\n");
         }
-        unsigned long booted;
-        if (sscanf(ptr + 6, "%lu", &booted) != 1) {
-                DEBUG("system statistic error -- cannot read system boot time\n");
-                return false;
-        }
-        systeminfo.booted = booted;
 
         return true;
 }
@@ -282,7 +282,7 @@ int initprocesstree_sysdep(ProcessTree_T **reference, ProcessEngine_Flags pflags
                         pt[i].cmdline = Str_dup(*buf ? buf : procname);
                 }
 
-                /* Set the data in ptree only if all process related reads succeeded (prevent partial data in the case that continue was called during data gathering) */
+                /* Set the data in ptree only if all process related reads succeeded (prevent partial data in the case that continue was called during data collecting) */
                 pt[i].pid = stat_pid;
                 pt[i].ppid = stat_ppid;
                 pt[i].cred.uid = stat_uid;

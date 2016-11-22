@@ -247,8 +247,8 @@ Print a short status summary.
 
 =item report [up | down | initialising | unmonitored | total]
 
-Report services state. The output can easily be parsed by scripts. 
-Without options, prints a short overview of the state of all 
+Report services state. The output can easily be parsed by scripts.
+Without options, prints a short overview of the state of all
 services managed by Monit. The option, I<up> prints the number of
 all services in this state, I<down> likewise and so on.
 
@@ -436,8 +436,8 @@ L<status|/"PROGRAM STATUS TESTING"> test allows one to check the
 program's exit status. If the program does not finish executing within
 <number> seconds, Monit will terminate it. The default program timeout
 is 300 seconds (5 minutes). The output of the program is recorded and
-made available in the User Interface and in alerts (by default up to
-512B, you can customize the limit using the L<set limits|"LIMITS">
+made available in the User Interface and in alerts, by default up to
+512B. You can customize the limits using the L<set limits|"LIMITS">
 statement).
 
 =head3 Network
@@ -620,7 +620,7 @@ I<VERIFY> enable SSL server certificate verification. This will verify
 and report an error if the server certificate is not trusted, not valid
 or has expired. By default certificate verification is disabled, though
 we recommend enabling it, otherwise there is no guarantee that Monit
-speaks with the server you think it speaks with. 
+speaks with the server you think it speaks with.
 
 I<SELFSIGNED> self-signed certificates are rejected by default. Use
 this option to allow self-signed certificates.
@@ -725,7 +725,7 @@ Example:
  set httpd unixsocket /var/run/monit.sock
      allow username:password
 
-B<Options>:
+=head2 Options
 
 B<UNIXSOCKET> set the path to the Unix Socket Monit should bind to
 and listen on.
@@ -789,6 +789,34 @@ HTTP response header and error pages. For example:
     signature disable
     allow myuser:mypassword
 
+=head2 IP version
+
+Monit HTTP over TCP supports both IP version 4 and 6. Support is
+transparent and does not require any special configuration. If the bind
+I<address> is B<not> specified as in this example:
+
+  set httpd
+    port 2812
+    allow ...
+
+Monit will bind to and listen on port 2812 on all interfaces, both IPv4
+and IPv6 if available. To force Monit HTTP to only listen on and accept
+connections over IP version 6, specify a IPv6 address:
+
+  set httpd
+    port 2812
+    use address "fe80::222:19ff:fe53:6c59"
+    allow ...
+
+Likewise, to force Monit HTTP to only listen on and accept connections
+over IP version 4, specify a IPv4 address:
+
+  set httpd
+    port 2812
+    use address 62.109.39.247
+    allow ...
+
+
 =head2 Authentication
 
 Access to the Monit web interface is controlled primarily via the
@@ -796,7 +824,7 @@ B<ALLOW> option which is used to specify authentication and authorise
 only specific clients to connect.
 
 If the Monit command line interface is being used, at least one
-cleartext password is necessary (see bellow), otherwise the Monit
+cleartext password is necessary (see below), otherwise the Monit
 command line interface will not be able to connect to the Monit
 web interface.
 
@@ -946,36 +974,6 @@ is defined as a read-only user, while the I<admin> user has all
 access rights.
 
 
-=head1 CENTRAL MANAGEMENT OF MULTIPLE MONIT HOSTS WITH M/MONIT
-
-You can use L<M/Monit|https://mmonit.com> for central management of multiple
-Monit hosts and to keep event log, draw charts, trends and more.
-
-To send data to M/Monit, add the following statement:
-
-  SET MMONIT <url>
-
-Example:
-
- set mmonit http://monit:monit@192.168.1.10:8080/collector
-
-Monit will register itself in M/Monit and will start sending service
-statistics (for charts) and events to M/Monit.
-
-By default Monit registers its own credentials from the SET HTTPD statement's
-ALLOW option, so M/Monit can communicate back to Monit (such as restart a specific service).
-
-It is possible to disable credentials registration, Monit will still be able
-to send statistics and events to M/Monit, but if you'll want to control some
-service remotely from M/Monit, you'll have to enter credentials manually. Example:
-
- set mmonit http://monit:monit@192.168.1.10:8080/collector and register without credentials
-
-The password should be URL encoded if it contains URL-significant characters like ":", "?", "@".
-
-Important: always use M/Monit with HTTPS url scheme, so the communication is encrypted.
-
-
 =head1 ALERT MESSAGES
 
 Monit will raise an alert in the following situations:
@@ -1066,7 +1064,7 @@ above:
 
  Event:     | Failure state:              | Success state:
  ---------------------------------------------------------------------
- action     | "Action done"               | "Action done"
+ action     | "Action failed"             | "Action done"
  checksum   | "Checksum failed"           | "Checksum succeeded"
  bytein     | "Download bytes exceeded"   | "Download bytes ok"
  byteout    | "Upload bytes exceeded"     | "Upload bytes ok"
@@ -1232,14 +1230,14 @@ Multiple mail servers can be set by using a comma separated list. If
 Monit cannot connect to the first server, it will try the next in
 the list and so on.
 
-The port statement allows to override the default SMTP port
+The port statement allows one to override the default SMTP port
 (465 for SSL, or 25 for TLS and non secure connection).
 
 Monit supports AUTH PLAIN and AUTH LOGIN for SMTP authentication.
 You can set a username and a password using the USERNAME and
 PASSWORD options.
 
-You can set SSL/TLS L<options|"SSL OPTIONS"> for the connection and 
+You can set SSL/TLS L<options|"SSL OPTIONS"> for the connection and
 also check a SSL certificate checksum.
 
 The default connection timeout is 5 seconds. You can rise this
@@ -1320,7 +1318,8 @@ Example:
 
 In the case of a process check, Monit will wait up to 30 seconds for
 the start/stop action to finish before giving up and report an error.
-You can override this timeout using the I<TIMEOUT> option.
+You can override this timeout using the I<TIMEOUT> option or globally
+using the L<set limits|"LIMITS">.
 
 Example:
 
@@ -1351,7 +1350,7 @@ There are three variants:
 
  EVERY [cron]
 
-=item 3. Negative Cron-style (do-not-check)   
+=item 3. Negative Cron-style (do-not-check)
 
  NOT EVERY [cron]
 
@@ -1500,6 +1499,10 @@ In I<laststate> mode, a service's monitoring state is persistent across
 reboot. For instance, if a service was started before reboot, it willl
 be started after reboot. If it was stopped before reboot, it will
 not be started after and so on.
+
+The default ONREBOOT START mode can be overriden globally:
+
+  SET ONREBOOT <START | NOSTART | LASTSTATE>
 
 
 =head1 SERVICE RESTART LIMIT
@@ -1680,6 +1683,10 @@ Syntax:
    FILECONTENTBUFFER: <number> <unit>,
    HTTPCONTENTBUFFER: <number> <unit>,
    NETWORKTIMEOUT:    <number> <timeunit>
+   PROGRAMTIMEOUT:    <number> <timeunit>
+   STOPTIMEOUT:       <number> <timeunit>
+   STARTTIMEOUT:      <number> <timeunit>
+   RESTARTTIMEOUT:    <number> <timeunit>
  }
 
 Where:
@@ -1695,7 +1702,11 @@ Options legend:
  | sendExpectBuffer  | limit for send/expect protocol test              | 256 B   |
  | fileContentBuffer | limit for file content test (line)               | 512 B   |
  | httpContentBuffer | limit for HTTP content test (response body)      | 1 MB    |
- | networkTimeout    | timeout for network I/O                          | 5 sec   |
+ | networkTimeout    | timeout for network I/O                          | 5 s     |
+ | programTimeout    | timeout for check program                        | 300 s   |
+ | stopTimeout       | timeout for service stop                         | 30 s    |
+ | startTimeout      | timeout for service start                        | 30 s    |
+ | startTimeout      | timeout for service restart                      | 30 s    |
  ----------------------------------------------------------------------------------
 
 
@@ -1812,7 +1823,7 @@ events before switching the state:
     for 3 cycles
  then alert
 
-The second format is more advanced and allows to tolerate intermittent
+The second format is more advanced and allows one to tolerate intermittent
 issues, but still catch excessive problems, where the service is
 flapping between error and success states frequently.
 
@@ -1836,9 +1847,9 @@ Note: the maximum value for cycles is 64.
 
 =head2 EXISTENCE TESTING
 
-This test is implicite and always active for service checks of type,
-I<process>, I<file>, I<directory> and I<fifo>. If not defined, it
-defaults to a restart action.
+This test is implicit and always active for service checks of type,
+I<process>, I<file>, I<directory>, I<filesystem> and I<fifo>. If not
+defined, it defaults to a restart action.
 
 You can override the default action with the following statement:
 
@@ -2091,7 +2102,7 @@ statements are evaluated.
 For example:
 
   check file syslog with path /var/log/syslog
-        ignore content = "^monit"
+        ignore content = "monit"
         if content = "^mrcoffee" then alert
 
 
@@ -2507,26 +2518,24 @@ Example:
 =head2 NETWORK BANDWIDTH TEST
 
 You can check a network link upload and download bandwidth usage, current
-transfer rate and total data transferred in the last 24 hours. This test may
-only be used within a check network service entry in the Monit control file.
+transfer speed and total data transferred in the last 24 hours. This test may
+only be used within a I<check network> service entry in the Monit control file.
 
-Warning: this test requires monit poll time to be at maximum 30 seconds.
+Upload speed test syntax (per second):
 
-Current upload bandwidth rate test syntax:
+ IF UPLOAD operator value unit/S THEN action
 
- IF UPLOAD operator value unit THEN action
+Download speed test syntax (per second):
 
-Current download bandwidth rate test syntax:
+ IF DOWNLOAD operator value unit/S THEN action
 
- IF DOWNLOAD operator value unit THEN action
+Total upload data test syntax:
 
-Total upload test syntax:
+ IF TOTAL UPLOADED operator value unit IN LAST number time-unit THEN action
 
- IF TOTAL UPLOAD operator value unit IN LAST number time-unit THEN action
+Total download data test syntax:
 
-Total download test syntax:
-
- IF TOTAL DOWNLOAD operator value unit IN LAST number time-unit THEN action
+ IF TOTAL DOWNLOADED operator value unit IN LAST number time-unit THEN action
 
 I<operator> is a choice of "<",">","!=","==" in c notation, "gt",
 "lt", "eq", "ne" in shell sh notation and "greater", "less",
@@ -2548,8 +2557,8 @@ Examples:
 
  check network eth0 with interface eth0
        if upload > 500 kB/s then alert
-       if total download > 1 GB in last 2 hours then alert
-       if total download > 10 GB in last day then alert
+       if total downloaded > 1 GB in last 2 hours then alert
+       if total downloaded > 10 GB in last day then alert
 
 
 =head2 NETWORK PACKETS TEST
@@ -2557,8 +2566,6 @@ Examples:
 You can check the network link upload and download packets count, current
 transfer rate and total data transferred in last 24 hours. This test may
 only be used within a check network service entry in the Monit control file.
-
-Warning: this test requires monit poll time to be at maximum 30 seconds.
 
 Current upload bandwidth rate test syntax:
 
@@ -2570,11 +2577,11 @@ Current download bandwidth rate test syntax:
 
 Total upload test syntax:
 
- IF TOTAL UPLOAD operator value PACKETS IN LAST number time-unit THEN action
+ IF TOTAL UPLOADED operator value PACKETS IN LAST number time-unit THEN action
 
 Total download test syntax:
 
- IF TOTAL DOWNLOAD operator value PACKETS IN LAST number time-unit THEN action
+ IF TOTAL DOWNLOADED operator value PACKETS IN LAST number time-unit THEN action
 
 I<operator> is a choice of "<",">","!=","==" in c notation, "gt",
 "lt", "eq", "ne" in shell sh notation and "greater", "less",
@@ -2592,7 +2599,7 @@ Examples:
 
  check network eth0 with interface eth0
        if upload > 1000 packets/s then alert
-       if total upload > 900000 packets in last hour then alert
+       if total uploaded > 900000 packets in last hour then alert
 
 
 =head2 NETWORK PING TEST
@@ -2898,11 +2905,17 @@ UNIX sockets and UDP sockets.
 Syntax:
 
  PROTO(COL) HTTP
+     [USERNAME "string"]
+     [PASSWORD "string"]
      [REQUEST "string"]
      [STATUS operator number]
      [CHECKSUM checksum]
      [HTTP HEADERS list of headers]
      [CONTENT < "=" | "!=" > STRING]
+
+I<USERNAME> is an optional username for Basic authentication
+
+I<PASSWORD> is an optional password for Basic authentication
 
 I<REQUEST> option can set an URL string specifying a document on the
 HTTP server. If the request statement isn't specified, the default "/"
@@ -2996,15 +3009,19 @@ For example:
 
 =head4 APACHE-STATUS
 
-The I<APACHE-STATUS> test allows to check server performance by examination
+The I<APACHE-STATUS> test allows one to check server performance by examination
 of the status page generated by Apache's mod_status, which is expected to be at
 its default address of http://www.example.com/server-status.
 
 Syntax:
 
- PROTOCOL APACHE-STATUS [PATH <path>] [<property> <operator> <number>]+
+ PROTOCOL APACHE-STATUS [PATH <path>] [USERNAME <string>] [PASSWORD <string>] [<property> <operator> <number>]+
 
-I<path> is an optional path to apache status ("/server-status" by default)
+I<PATH> is an optional path to apache status ("/server-status" by default)
+
+I<USERNAME> is an optional username for Basic authentication
+
+I<PASSWORD> is an optional password for Basic authentication
 
 I<property> is acronym for child status:
 
@@ -3140,7 +3157,7 @@ I<USERNAME> SMTP username.
 
 I<PASSWORD> SMTP password (special characters can be used, but for
 non-alphanumerics the password has to be quoted).
- 
+
 Credentials are I<optional> and when used will perform authentication
 during testing so you can test that authentication also works. We
 recommend using I<smtps> if authentication is to be used to encrypt the
@@ -3198,6 +3215,33 @@ For example:
           origin 'http://websocket.com'
           version 13
        then alert
+
+
+=head1 MANAGE YOUR MONIT INSTANCES
+
+L<M/Monit|https://mmonit.com> expands on Monit's capabilities and
+provides monitoring and management of all your Monit enabled hosts.
+M/Monit uses Monit as an agent. With regular intervals, Monit can send
+a message to M/Monit with the status of the host it is running on.
+M/Monit presents the collected data in charts and event logs and give
+you the option to view key performance data of all your hosts in a
+modern, clean and well designed user interface which also works on
+mobile devices. From M/Monit, you can also start, stop and restart
+services on your hosts running Monit.
+
+To send data to M/Monit, add the following statement to your Monit
+control file:
+
+  SET MMONIT <url>
+
+Example:
+
+ set mmonit https://monit:monit@192.168.1.10:8443/collector
+
+Monit will register itself in M/Monit and will start sending status and
+event messages to M/Monit. We recommend using I<https> as in the
+example above to ensure that the communication between Monit and
+M/Monit is secure
 
 
 =head1 CONFIGURATION EXAMPLES
@@ -3529,7 +3573,7 @@ F<~/.monit.id>
 No environment variables are used by Monit. However, when Monit
 executes a start/stop/restart program or an exec action, it will
 set several environment variables which can be utilised by the
-executable to get informations about the event, which triggered
+executable to get information about the event, which triggered
 the action.
 
 The following environment variable is set for every program

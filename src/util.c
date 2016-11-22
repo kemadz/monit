@@ -133,12 +133,33 @@ struct ad_user {
 };
 
 
-/* Unsafe URL characters: <>\"#%{}|\\^[] ` */
+/* Unsafe URL characters: [00-1F, 7F-FF] <>\"#%}{|\\^[] ` */
 static const unsigned char urlunsafe[256] = {
         1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
         1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
         1, 0, 1, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 0,
+        1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 0, 1,
+        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1
+};
+
+
+/* Unsafe URL characters for parameter value: [00-1F, 7F-FF] ?=&/<>\"#%}{|\\^[] ` */
+static const unsigned char urlunsafeparameter[256] = {
+        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+        1, 0, 1, 1, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1,
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 0,
         1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -792,7 +813,12 @@ void Util_printRunList() {
         printf(" %-18s =   fileContentBuffer: %s\n", " ", Str_bytesToSize(Run.limits.fileContentBuffer, buf));
         printf(" %-18s =   httpContentBuffer: %s\n", " ", Str_bytesToSize(Run.limits.httpContentBuffer, buf));
         printf(" %-18s =   networkTimeout:    %s\n", " ", Str_milliToTime(Run.limits.networkTimeout, (char[23]){}));
+        printf(" %-18s =   programTimeout:    %s\n", " ", Str_milliToTime(Run.limits.programTimeout, (char[23]){}));
+        printf(" %-18s =   stopTimeout:       %s\n", " ", Str_milliToTime(Run.limits.stopTimeout, (char[23]){}));
+        printf(" %-18s =   startTimeout:      %s\n", " ", Str_milliToTime(Run.limits.startTimeout, (char[23]){}));
+        printf(" %-18s =   restartTimeout:    %s\n", " ", Str_milliToTime(Run.limits.restartTimeout, (char[23]){}));
         printf(" %-18s = }\n", " ");
+        printf(" %-18s = %s\n", "On reboot", onrebootnames[Run.onreboot]);
         printf(" %-18s = %d seconds with start delay %d seconds\n", "Poll time", Run.polltime, Run.startdelay);
 
         if (Run.eventlist_dir) {
@@ -899,7 +925,7 @@ void Util_printRunList() {
                 }
 
                 printf(" %-18s = %s\n", "httpd auth. style",
-                       Run.httpd.credentials && Engine_hasHostsAllow() ? "Basic Authentication and Host/Net allow list" : Run.httpd.credentials ? "Basic Authentication" : Engine_hasHostsAllow() ? "Host/Net allow list" : "No authentication!");
+                       Run.httpd.credentials && Engine_hasAllow() ? "Basic Authentication and Host/Net allow list" : Run.httpd.credentials ? "Basic Authentication" : Engine_hasAllow() ? "Host/Net allow list" : "No authentication!");
 
         }
 
@@ -956,39 +982,30 @@ void Util_printService(Service_T s) {
         printf(" %-20s = %s\n", "Monitoring mode", modenames[s->mode]);
         printf(" %-20s = %s\n", "On reboot", onrebootnames[s->onreboot]);
         if (s->start) {
-                printf(" %-20s = '", "Start program");
-                for (int i = 0; s->start->arg[i]; i++)
-                        printf("%s%s", i ? " " : "", s->start->arg[i]);
-                printf("'");
+                printf(" %-20s = '%s'", "Start program", Util_commandDescription(s->start, (char[STRLEN]){}));
                 if (s->start->has_uid)
                         printf(" as uid %d", s->start->uid);
                 if (s->start->has_gid)
                         printf(" as gid %d", s->start->gid);
-                printf(" timeout %d second(s)", s->start->timeout);
+                printf(" timeout %s", Str_milliToTime(s->start->timeout, (char[23]){}));
                 printf("\n");
         }
         if (s->stop) {
-                printf(" %-20s = '", "Stop program");
-                for (int i = 0; s->stop->arg[i]; i++)
-                        printf("%s%s", i ? " " : "", s->stop->arg[i]);
-                printf("'");
+                printf(" %-20s = '%s'", "Stop program", Util_commandDescription(s->stop, (char[STRLEN]){}));
                 if (s->stop->has_uid)
                         printf(" as uid %d", s->stop->uid);
                 if (s->stop->has_gid)
                         printf(" as gid %d", s->stop->gid);
-                printf(" timeout %d second(s)", s->stop->timeout);
+                printf(" timeout %s", Str_milliToTime(s->stop->timeout, (char[23]){}));
                 printf("\n");
         }
         if (s->restart) {
-                printf(" %-20s = '", "Restart program");
-                for (int i = 0; s->restart->arg[i]; i++)
-                        printf("%s%s", i ? " " : "", s->restart->arg[i]);
-                printf("'");
+                printf(" %-20s = '%s'", "Restart program", Util_commandDescription(s->restart, (char[STRLEN]){}));
                 if (s->restart->has_uid)
                         printf(" as uid %d", s->restart->uid);
                 if (s->restart->has_gid)
                         printf(" as gid %d", s->restart->gid);
-                printf(" timeout %d second(s)", s->restart->timeout);
+                printf(" timeout %s", Str_milliToTime(s->restart->timeout, (char[23]){}));
                 printf("\n");
         }
 
@@ -1018,7 +1035,7 @@ void Util_printService(Service_T s) {
 
         if (s->type == Service_Program) {
                 printf(" %-20s = ", "Program timeout");
-                printf("terminate the program if not finished within %d seconds\n", s->program->timeout);
+                printf("terminate the program if not finished within %s\n", Str_milliToTime(s->program->timeout, (char[23]){}));
                 for (Status_T o = s->statuslist; o; o = o->next) {
                         StringBuffer_clear(buf);
                         if (o->operator == Operator_Changed)
@@ -1389,27 +1406,30 @@ void Util_printServiceList() {
 }
 
 
+char *Util_getToken(MD_T token) {
+        md5_context_t ctx;
+        char buf[STRLEN];
+        MD_T digest;
+        snprintf(buf, STRLEN, "%lu%d%lu", (unsigned long)Time_now(), getpid(), random());
+        md5_init(&ctx);
+        md5_append(&ctx, (const md5_byte_t *)buf, STRLEN - 1);
+        md5_finish(&ctx, (md5_byte_t *)digest);
+        Util_digest2Bytes((unsigned char *)digest, 16, token);
+        return token;
+}
+
+
 char *Util_monitId(char *idfile) {
-        FILE *file = NULL;
-
         ASSERT(idfile);
-
+        FILE *file = NULL;
         if (! File_exist(idfile)) {
-                md5_context_t ctx;
-                char buf[STRLEN];
-                MD_T digest;
+                // Generate the unique id
                 file = fopen(idfile, "w");
                 if (! file) {
                         LogError("Error opening the idfile '%s' -- %s\n", idfile, STRERROR);
                         return NULL;
                 }
-                /* Generate the unique id */
-                snprintf(buf, STRLEN, "%lu%d%lu", (unsigned long)Time_now(), getpid(), random());
-                md5_init(&ctx);
-                md5_append(&ctx, (const md5_byte_t *)buf, STRLEN - 1);
-                md5_finish(&ctx, (md5_byte_t *)digest);
-                Util_digest2Bytes((unsigned char *)digest, 16, Run.id);
-                fprintf(file, "%s", Run.id);
+                fprintf(file, "%s", Util_getToken(Run.id));
                 LogInfo(" New Monit id: %s\n Stored in '%s'\n", Run.id, idfile);
         } else {
                 if (! File_isFile(idfile)) {
@@ -1478,20 +1498,21 @@ boolean_t Util_isurlsafe(const char *url) {
 }
 
 
-char *Util_urlEncode(char *url) {
+char *Util_urlEncode(char *string, boolean_t isParameterValue) {
         char *escaped = NULL;
-        if (url) {
+        if (string) {
                 char *p;
                 int i, n;
-                for (n = i = 0; url[i]; i++)
-                        if (urlunsafe[(unsigned char)(url[i])])
+                const unsigned char *unsafe = isParameterValue ? urlunsafeparameter : urlunsafe;
+                for (n = i = 0; string[i]; i++)
+                        if (unsafe[(unsigned char)(string[i])])
                                 n += 2;
                 p = escaped = ALLOC(i + n + 1);
-                for (; *url; url++, p++) {
-                        if (urlunsafe[(unsigned char)(*p = *url)]) {
+                for (; *string; string++, p++) {
+                        if (unsafe[(unsigned char)(*p = *string)]) {
                                 *p++ = '%';
-                                *p++ = b2x[(unsigned char)(*url)][0];
-                                *p = b2x[(unsigned char)(*url)][1];
+                                *p++ = b2x[(unsigned char)(*string)][0];
+                                *p = b2x[(unsigned char)(*string)][1];
                         }
                 }
                 *p = 0;
@@ -1516,18 +1537,6 @@ char *Util_urlDecode(char *url) {
                 url[x] = 0;
         }
         return url;
-}
-
-
-// NOTE: To be used to URL encode service names when ready
-char *Util_encodeServiceName(char *name) {
-        int i;
-        char *s;
-        ASSERT(name);
-        s = Util_urlEncode(name);
-        for (i = 0; s[i]; i++)
-                if (s[i] == '/') return Util_replaceString(&s, "/", "%2F");
-        return s;
 }
 
 
@@ -1730,10 +1739,11 @@ boolean_t Util_hasServiceStatus(Service_T s) {
 char *Util_getHTTPHostHeader(Socket_T s, char *hostBuf, int len) {
         int port = Socket_getRemotePort(s);
         const char *host = Socket_getRemoteHost(s);
+        boolean_t ipv6 = Str_sub(host, ":") ? true : false;
         if (port == 80 || port == 443)
-                snprintf(hostBuf, len, "%s", host);
+                snprintf(hostBuf, len, "%s%s%s", ipv6 ? "[" : "", host, ipv6 ? "]" : "");
         else
-                snprintf(hostBuf, len, "%s:%d", host, port);
+                snprintf(hostBuf, len, "%s%s%s:%d", ipv6 ? "[" : "", host, ipv6 ? "]" : "", port);
         return hostBuf;
 }
 
@@ -1945,13 +1955,26 @@ const char *Util_portRequestDescription(Port_T p) {
 
 char *Util_portDescription(Port_T p, char *buf, int bufsize) {
         if (p->family == Socket_Ip || p->family == Socket_Ip4 || p->family == Socket_Ip6) {
-                snprintf(buf, STRLEN, "[%s]:%d%s [%s/%s%s]", p->hostname, p->target.net.port, Util_portRequestDescription(p), Util_portTypeDescription(p), Util_portIpDescription(p), p->target.net.ssl.flags ? " SSL" : "");
+                snprintf(buf, bufsize, "[%s]:%d%s [%s/%s%s]", p->hostname, p->target.net.port, Util_portRequestDescription(p), Util_portTypeDescription(p), Util_portIpDescription(p), p->target.net.ssl.flags ? " SSL" : "");
         } else if (p->family == Socket_Unix) {
-                snprintf(buf, STRLEN, "%s", p->target.unix.pathname);
+                snprintf(buf, bufsize, "%s", p->target.unix.pathname);
         } else {
                 *buf = 0;
         }
         return buf;
+}
+
+
+char *Util_commandDescription(command_t command, char s[STRLEN]) {
+        ASSERT(s);
+        ASSERT(command);
+        int len = 0;
+        for (int i = 0; command->arg[i] && len < STRLEN - 1; i++) {
+                len += snprintf(s + len, STRLEN - len, "%s%s", i ? " " : "", command->arg[i]);
+        }
+        if (len >= STRLEN - 1)
+                snprintf(s + STRLEN - 3 - 1, STRLEN, "...");
+        return s;
 }
 
 

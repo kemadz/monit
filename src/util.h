@@ -77,6 +77,7 @@ int Util_handle0Escapes(char *buf);
  * @param digest buffer containing a MD digest
  * @param mdlen digest length
  * @param result buffer to write the result to. Must be at least 41 bytes long.
+ * @return pointer to result buffer
  */
 char *Util_digest2Bytes(unsigned char *digest, int mdlen, MD_T result);
 
@@ -166,6 +167,14 @@ void Util_printServiceList();
 
 
 /**
+ * Get a random token
+ * @param token buffer to store the MD digest
+ * @return pointer to token buffer
+ */
+char *Util_getToken(MD_T token);
+
+
+/**
  * Open and read the id from the given idfile. If the idfile doesn't exist,
  * generate new id and store it in the id file.
  * @param idfile An idfile with full path
@@ -193,10 +202,11 @@ boolean_t Util_isurlsafe(const char *url);
 /**
  * Escape an url string converting unsafe characters to a hex (%xx)
  * representation.  The caller must free the returned string.
- * @param url an url string
+ * @param string a string to encode
+ * @param isParameterValue true if the string is url parameter value
  * @return the escaped string
  */
-char *Util_urlEncode(char *url);
+char *Util_urlEncode(char *string, boolean_t isParameterValue);
 
 
 /**
@@ -206,16 +216,6 @@ char *Util_urlEncode(char *url);
  * @return A pointer to the unescaped <code>url</code>string
  */
 char *Util_urlDecode(char *url);
-
-
-/**
- * URL escape a service name so it can be safely transfeered over HTTP. In
- * particular any '/' chars in name is encoded. The caller must free the
- * returned string.
- * @param name a service name string to be URL encoded
- * @return the escaped string
- */
-char *Util_encodeServiceName(char *name);
 
 
 /**
@@ -391,6 +391,15 @@ const char *Util_portRequestDescription(Port_T p);
  * @return the buffer
  */
 char *Util_portDescription(Port_T p, char *buf, int bufsize);
+
+
+/**
+ * Print a command description
+ * @param command Command object
+ * @param s A result buffer, must be large enough to hold STRLEN chars
+ * @return A pointer to s
+ */
+char *Util_commandDescription(command_t command, char s[STRLEN]);
 
 
 /**

@@ -88,7 +88,7 @@ static void _gc_request(Request_T *);
 
 
 void gc() {
-        Engine_destroyHostsAllow();
+        Engine_destroyAllow();
         if (Run.flags & Run_ProcessEngineEnabled)
                 ProcessTree_delete();
         if (servicelist)
@@ -109,9 +109,9 @@ void gc() {
                 FREE(Run.httpd.socket.net.address);
                 FREE(Run.httpd.socket.net.ssl.pem);
                 FREE(Run.httpd.socket.net.ssl.clientpem);
-        } else if (Run.httpd.flags & Httpd_Unix) {
-                FREE(Run.httpd.socket.unix.path);
         }
+        if (Run.httpd.flags & Httpd_Unix)
+                FREE(Run.httpd.socket.unix.path);
         if (Run.MailFormat.from)
                 Address_free(&(Run.MailFormat.from));
         if (Run.MailFormat.replyto)
@@ -354,6 +354,8 @@ static void _gcportlist(Port_T *p) {
         FREE((*p)->hostname);
         FREE((*p)->outgoing.ip);
         if ((*p)->protocol->check == check_http) {
+                FREE((*p)->parameters.http.username);
+                FREE((*p)->parameters.http.password);
                 FREE((*p)->parameters.http.request);
                 FREE((*p)->parameters.http.checksum);
                 if ((*p)->parameters.http.headers) {
@@ -383,6 +385,8 @@ static void _gcportlist(Port_T *p) {
                 FREE((*p)->parameters.websocket.request);
         } else if ((*p)->protocol->check == check_apache_status) {
                 FREE((*p)->parameters.apachestatus.path);
+                FREE((*p)->parameters.apachestatus.username);
+                FREE((*p)->parameters.apachestatus.password);
         }
         FREE(*p);
 }

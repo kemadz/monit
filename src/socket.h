@@ -104,11 +104,10 @@ T Socket_createUnix(const char *path, Socket_Type type, int timeout);
  * ssl. This method does only support TCP sockets.
  * @param socket The accepted socket
  * @param addr The socket address
- * @param addrlen The socket address length
  * @param sslserver A ssl server connection context, may be NULL
  * @return A Socket or NULL if an error occurred
  */
-T Socket_createAccepted(int socket, struct sockaddr *addr, socklen_t addrlen, void *sslserver);
+T Socket_createAccepted(int socket, struct sockaddr *addr, void *sslserver);
 
 
 /**
@@ -228,7 +227,7 @@ void Socket_enableSsl(T S, SslOptions_T ssl, const char *name);
  * messages to a client.
  * @param S A Socket_T object
  * @param m A String to send to the client
- * @return The bytes sent or -1 if an error occured
+ * @return The bytes sent or -1 if an error occurred
  */
 int Socket_print(T S, const char *m, ...) __attribute__((format (printf, 2, 3)));
 
@@ -238,7 +237,7 @@ int Socket_print(T S, const char *m, ...) __attribute__((format (printf, 2, 3)))
  * @param S A Socket_T object
  * @param b The data to be written
  * @param size The size of the data in b
- * @return The bytes sent or -1 if an error occured
+ * @return The bytes sent or -1 if an error occurred
  */
 int Socket_write(T S, void *b, size_t size);
 
@@ -257,7 +256,7 @@ int Socket_readByte(T S);
  * @param S A Socket_T object
  * @param b A Byte buffer
  * @param size The size of the buffer b
- * @return The bytes read or -1 if an error occured
+ * @return The bytes read or -1 if an error occurred
  */
 int Socket_read(T S, void *b, int size);
 

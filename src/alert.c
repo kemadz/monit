@@ -70,26 +70,31 @@
 /* ----------------------------------------------------------------- Private */
 
 
-// Translate system hostname to FQDN, fallback to plain system hostname if failed
+// If the host is not set already (cached), translate system hostname to FQDN or fallback to plain system hostname if failed
 static char *_getFQDNhostname(char host[256]) {
-        struct addrinfo *result = NULL, hints = {
-                .ai_family = AF_UNSPEC,
-                .ai_flags = AI_CANONNAME,
-                .ai_socktype = SOCK_STREAM
-        };
-        int status = getaddrinfo(Run.system->name, NULL, &hints, &result);
-        if (status == 0) {
-                for (struct addrinfo *r = result; r; r = r->ai_next) {
-                        if (Str_startsWith(r->ai_canonname, Run.system->name)) {
-                                strncpy(host, r->ai_canonname, 255);
-                                break;
+        assert(host);
+        if (! *host) {
+                struct addrinfo *result = NULL, hints = {
+                        .ai_family = AF_UNSPEC,
+                        .ai_flags = AI_CANONNAME,
+                        .ai_socktype = SOCK_STREAM
+                };
+                int status = getaddrinfo(Run.system->name, NULL, &hints, &result);
+                if (status == 0) {
+                        for (struct addrinfo *r = result; r; r = r->ai_next) {
+                                if (Str_startsWith(r->ai_canonname, Run.system->name)) {
+                                        strncpy(host, r->ai_canonname, 255);
+                                        break;
+                                }
                         }
+                        freeaddrinfo(result);
+                } else {
+                        LogWarning("Cannot translate '%s' to FQDN name, please set a sender address using 'set mail-format' -- %s\n", Run.system->name, status == EAI_SYSTEM ? STRERROR : gai_strerror(status));
                 }
-                freeaddrinfo(result);
-        } else {
-                // Fallback
-                LogError("Cannot translate '%s' to FQDN name -- %s\n", Run.system->name, status == EAI_SYSTEM ? STRERROR : gai_strerror(status));
-                strncpy(host, Run.system->name, 255);
+                if (! *host) {
+                        // Fallback
+                        strncpy(host, Run.system->name, 255);
+                }
         }
         return host;
 }
@@ -99,9 +104,12 @@ static void _substitute(Mail_T m, Event_T e) {
         ASSERT(m);
         ASSERT(e);
 
-        Util_replaceString(&m->from->address, "$HOST", m->host);
-        Util_replaceString(&m->subject, "$HOST", m->host);
-        Util_replaceString(&m->message, "$HOST", m->host);
+        // If the sender address contains a $HOST macro, expand it to FQDN hostname, otherwise it was overriden via a mail-format "from" option
+        if (Str_sub(m->from->address, "$HOST"))
+                Util_replaceString(&m->from->address, "$HOST", _getFQDNhostname(m->host));
+
+        Util_replaceString(&m->subject, "$HOST", Run.system->name);
+        Util_replaceString(&m->message, "$HOST", Run.system->name);
 
         char timestamp[26];
         Time_string(e->collected.tv_sec, timestamp);
@@ -175,7 +183,7 @@ static void _appendMail(List_T list, Mail_T m, Event_T e, char *host) {
 
 static MailServer_T _connectMTA() {
         if (! Run.mailservers)
-                THROW(IOException, "No mail servers are defined -- see manual for 'set mailserver' statement");
+                THROW(IOException, "No mail servers are defined -- please see the 'set mailserver' statement in the manual");
         MailServer_T mta = NULL;
         for (mta = Run.mailservers; mta; mta = mta->next) {
                 DEBUG("Trying to send mail via %s:%i\n", mta->host, mta->port);
@@ -227,7 +235,7 @@ static boolean_t _send(List_T list) {
                                                 "Date: %s\r\n"
                                                 "X-Mailer: Monit %s\r\n"
                                                 "MIME-Version: 1.0\r\n"
-                                                "Content-Type: text/plain; charset=\"iso-8859-1\"\r\n"
+                                                "Content-Type: text/plain; charset=utf-8\r\n"
                                                 "Content-Transfer-Encoding: 8bit\r\n"
                                                 "Message-Id: <%lld.%lu@%s>\r\n"
                                                 "\r\n"
@@ -236,7 +244,7 @@ static boolean_t _send(List_T list) {
                                                 m->subject,
                                                 now,
                                                 VERSION,
-                                                (long long)Time_now(), random(), Run.mail_hostname ? Run.mail_hostname : m->host,
+                                                (long long)Time_now(), random(), Run.mail_hostname ? Run.mail_hostname : Run.system->name,
                                                 m->message) <= 0
                                    )
                                 {
@@ -267,6 +275,14 @@ static boolean_t _send(List_T list) {
 }
 
 
+boolean_t _hasRecipient(Mail_T list, const char *recipient) {
+        for (Mail_T l = list; l; l = l->next)
+                if (IS(recipient, l->to))
+                        return true;
+        return false;
+}
+
+
 /* ------------------------------------------------------------------ Public */
 
 
@@ -279,20 +295,17 @@ Handler_Type handle_alert(Event_T E) {
         ASSERT(E);
 
         Handler_Type rv = Handler_Succeeded;
-        if (E->source->maillist || Run.maillist) {
-                char host[256];
-                _getFQDNhostname(host);
+        Service_T s = E->source;
+        if (s->maillist || Run.maillist) {
+                char host[256] = {};
                 List_T list = List_new();
                 // Build a mail-list with local recipients that has registered interest for this event
-                for (Mail_T m = E->source->maillist; m; m = m->next)
+                for (Mail_T m = s->maillist; m; m = m->next)
                         _appendMail(list, m, E, host);
                 // Build a mail-list with global recipients that has registered interest for this event. Recipients which are defined in the service localy overrides the same recipient events which are registered globaly.
-                for (Mail_T m = Run.maillist; m; m = m->next) {
-                        for (Mail_T n = E->source->maillist; n; n = n->next)
-                                if (IS(m->to, n->to))
-                                        continue; // Handled by local alert definition already
-                        _appendMail(list, m, E, host);
-                }
+                for (Mail_T m = Run.maillist; m; m = m->next)
+                        if (! _hasRecipient(s->maillist, m->to))
+                                _appendMail(list, m, E, host);
                 if (List_length(list))
                         if (_send(list))
                                 rv = Handler_Alert;

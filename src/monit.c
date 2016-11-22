@@ -144,6 +144,7 @@ char *servicetypes[] = {"Filesystem", "Directory", "File", "Process", "Remote Ho
 char *pathnames[] = {"Path", "Path", "Path", "Pid file", "Path", "", "Path"};
 char *icmpnames[] = {"Reply", "", "", "Destination Unreachable", "Source Quench", "Redirect", "", "", "Ping", "", "", "Time Exceeded", "Parameter Problem", "Timestamp Request", "Timestamp Reply", "Information Request", "Information Reply", "Address Mask Request", "Address Mask Reply"};
 char *sslnames[] = {"auto", "v2", "v3", "tlsv1", "tlsv1.1", "tlsv1.2"};
+char *socketnames[] = {"unix", "IP", "IPv4", "IPv6"};
 
 
 /* ------------------------------------------------------------------ Public */
@@ -266,7 +267,7 @@ static void do_init() {
                 Run.files.control = file_findControlFile();
 
         /*
-         * Initialize the system information gathering interface
+         * Initialize the system information data collecting interface
          */
         if (init_system_info())
                 Run.flags |= Run_ProcessEngineEnabled;
@@ -288,7 +289,7 @@ static void do_init() {
          * Did we find any service ?
          */
         if (! servicelist) {
-                LogError("No services has been specified\n");
+                LogError("No service has been specified\n");
                 exit(0);
         }
 
@@ -349,7 +350,7 @@ static void do_reinit() {
         gc();
 
         if (! parse(Run.files.control)) {
-                LogError("%s stopped -- configuration file parsing error\n", prog);
+                LogError("%s stopped -- error parsing configuration file\n", prog);
                 exit(1);
         }
 
@@ -362,7 +363,7 @@ static void do_reinit() {
 
         /* Did we find any services ?  */
         if (! servicelist) {
-                LogError("No services has been specified\n");
+                LogError("No service has been specified\n");
                 exit(0);
         }
 
@@ -530,7 +531,7 @@ static void do_default() {
                 }
 
                 if (Run.startdelay)
-                        LogInfo("Monit start delay set -- pause for %ds\n", Run.startdelay);
+                        LogInfo("Monit start delay set to %ds\n", Run.startdelay);
 
                 if (! (Run.flags & Run_Foreground))
                         daemonize();
@@ -801,10 +802,10 @@ static void help() {
                " -l logfile    Print log information to this file\n"
                " -p pidfile    Use this lock file in daemon mode\n"
                " -s statefile  Set the file monit should write state information to\n"
-               " -I            Do not run in background (needed for run from init)\n"
+               " -I            Do not run in background (needed when run from init)\n"
                " --id          Print Monit's unique ID\n"
                " --resetid     Reset Monit's unique ID. Use with caution\n"
-               " -B            Batch command line mode (nontabular output with no colors)\n"
+               " -B            Batch command line mode (do not output tables or colors)\n"
                " -t            Run syntax check for the control file\n"
                " -v            Verbose mode, work noisy (diagnostic output)\n"
                " -vv           Very verbose mode, same as -v plus log stacktrace on error\n"
@@ -826,8 +827,8 @@ static void help() {
                " reload                - Reinitialize monit\n"
                " status [name]         - Print full status information for service(s)\n"
                " summary [name]        - Print short status information for service(s)\n"
-               " report [up|down|..]   - Report services state. See manual for options\n"
-               " quit                  - Kill monit daemon process\n"
+               " report [up|down|..]   - Report state of services. See manual for options\n"
+               " quit                  - Kill the monit daemon process\n"
                " validate              - Check all services and start if not running\n"
                " procmatch <pattern>   - Test process matching pattern\n",
                prog);
@@ -843,6 +844,14 @@ static void version() {
         printf("out");
 #endif
         printf(" ssl, with");
+#ifndef HAVE_IPV6
+        printf("out");
+#endif
+        printf(" ipv6, with");
+#ifndef HAVE_LIBZ
+        printf("out");
+#endif
+        printf(" compression, with");
 #ifndef HAVE_LIBPAM
         printf("out");
 #endif
