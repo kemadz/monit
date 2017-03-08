@@ -96,7 +96,6 @@
 #endif
 
 #ifdef HAVE_LIBPERFSTAT_H
-#include <sys/protosw.h>
 #include <libperfstat.h>
 #endif
 
@@ -132,16 +131,16 @@ boolean_t init_process_info_sysdep(void) {
                 return false;
         }
 
-        page_size          = getpagesize();
-        systeminfo.mem_max = (uint64_t)mem.real_total * (uint64_t)page_size;
-        systeminfo.cpus    = sysconf(_SC_NPROCESSORS_ONLN);
+        page_size = getpagesize();
+        systeminfo.memory.size = (uint64_t)mem.real_total * (uint64_t)page_size;
+        systeminfo.cpu.count = sysconf(_SC_NPROCESSORS_ONLN);
 
-	setutxent();
-	struct utmpx _booted = {.ut_type = BOOT_TIME};
-	struct utmpx *booted = getutxid(&_booted);
-	if (booted)
-		systeminfo.booted = booted->ut_tv.tv_sec;
-	endutxent();
+        setutxent();
+        struct utmpx _booted = {.ut_type = BOOT_TIME};
+        struct utmpx *booted = getutxid(&_booted);
+        if (booted)
+                systeminfo.booted = booted->ut_tv.tv_sec;
+        endutxent();
 
         return true;
 }
@@ -203,14 +202,16 @@ int initprocesstree_sysdep(ProcessTree_T **reference, ProcessEngine_Flags pflags
         ProcessTree_T *pt = CALLOC(sizeof(ProcessTree_T), treesize);
 
         for (int i = 0; i < treesize; i++) {
-                pt[i].pid          = procs[i].pi_pid;
-                pt[i].ppid         = procs[i].pi_ppid;
-                pt[i].cred.euid    = procs[i].pi_uid;
-                pt[i].threads      = procs[i].pi_thcount;
-                pt[i].uptime       = systeminfo.time / 10. - procs[i].pi_start;
-                pt[i].memory.usage = (uint64_t)(procs[i].pi_drss + procs[i].pi_trss) * (uint64_t)page_size;
-                pt[i].cpu.time     = procs[i].pi_ru.ru_utime.tv_sec * 10 + (double)procs[i].pi_ru.ru_utime.tv_usec / 100000. + procs[i].pi_ru.ru_stime.tv_sec * 10 + (double)procs[i].pi_ru.ru_stime.tv_usec / 100000.;
-                pt[i].zombie       = procs[i].pi_state == SZOMB ? true: false;
+                pt[i].pid              = procs[i].pi_pid;
+                pt[i].ppid             = procs[i].pi_ppid;
+                pt[i].cred.euid        = procs[i].pi_uid;
+                pt[i].threads          = procs[i].pi_thcount;
+                pt[i].uptime           = systeminfo.time / 10. - procs[i].pi_start;
+                pt[i].memory.usage     = (uint64_t)(procs[i].pi_drss + procs[i].pi_trss) * (uint64_t)page_size;
+                pt[i].cpu.time         = procs[i].pi_ru.ru_utime.tv_sec * 10 + (double)procs[i].pi_ru.ru_utime.tv_usec / 100000. + procs[i].pi_ru.ru_stime.tv_sec * 10 + (double)procs[i].pi_ru.ru_stime.tv_usec / 100000.;
+                pt[i].read.operations  = procs[i].pi_ru.ru_inblock;
+                pt[i].write.operations = procs[i].pi_ru.ru_oublock;
+                pt[i].zombie           = procs[i].pi_state == SZOMB ? true: false;
 
                 char filename[STRLEN];
                 snprintf(filename, sizeof(filename), "/proc/%d/psinfo", pt[i].pid);
@@ -271,11 +272,11 @@ boolean_t used_system_memory_sysdep(SystemInfo_T *si) {
                 LogError("system statistic error -- perfstat_memory_total failed: %s\n", STRERROR);
                 return false;
         }
-        si->total_mem = (uint64_t)(mem.real_total - mem.real_free - mem.numperm) * (uint64_t)page_size;
+        si->memory.usage.bytes = (uint64_t)(mem.real_total - mem.real_free - mem.numperm) * (uint64_t)page_size;
 
         /* Swap */
-        si->swap_max   = (uint64_t)mem.pgsp_total * 4096;                   /* 4kB blocks */
-        si->total_swap = (uint64_t)(mem.pgsp_total - mem.pgsp_free) * 4096; /* 4kB blocks */
+        si->swap.size   = (uint64_t)mem.pgsp_total * 4096;                   /* 4kB blocks */
+        si->swap.usage.bytes = (uint64_t)(mem.pgsp_total - mem.pgsp_free) * 4096; /* 4kB blocks */
 
         return true;
 }
@@ -307,13 +308,13 @@ boolean_t used_system_cpu_sysdep(SystemInfo_T *si) {
 
         if (cpu_initialized) {
                 if (cpu_total > 0) {
-                        si->total_cpu_user_percent = 100. * ((double)(cpu_user - cpu_user_old) / (double)cpu_total);
-                        si->total_cpu_syst_percent = 100. * ((double)(cpu_syst - cpu_syst_old) / (double)cpu_total);
-                        si->total_cpu_wait_percent = 100. * ((double)(cpu_wait - cpu_wait_old) / (double)cpu_total);
+                        si->cpu.usage.user = 100. * ((double)(cpu_user - cpu_user_old) / (double)cpu_total);
+                        si->cpu.usage.system = 100. * ((double)(cpu_syst - cpu_syst_old) / (double)cpu_total);
+                        si->cpu.usage.wait = 100. * ((double)(cpu_wait - cpu_wait_old) / (double)cpu_total);
                 } else {
-                        si->total_cpu_user_percent = 0.;
-                        si->total_cpu_syst_percent = 0.;
-                        si->total_cpu_wait_percent = 0.;
+                        si->cpu.usage.user = 0.;
+                        si->cpu.usage.system = 0.;
+                        si->cpu.usage.wait = 0.;
                 }
         }
 

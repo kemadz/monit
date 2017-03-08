@@ -122,7 +122,7 @@ static void waitforchildren(void); /* Wait for any child process not running */
 
 
 const char *prog;                              /**< The Name of this Program */
-struct myrun Run;                      /**< Struct holding runtime constants */
+struct Run_T Run;                      /**< Struct holding runtime constants */
 Service_T servicelist;                /**< The service list (created in p.y) */
 Service_T servicelist_conf;   /**< The service list in conf file (c. in p.y) */
 ServiceGroup_T servicegrouplist;/**< The service group list (created in p.y) */
@@ -139,7 +139,6 @@ char *onrebootnames[] = {"start", "nostart", "laststate"};
 char *checksumnames[] = {"UNKNOWN", "MD5", "SHA1"};
 char *operatornames[] = {"less than", "less than or equal to", "greater than", "greater than or equal to", "equal to", "not equal to", "changed"};
 char *operatorshortnames[] = {"<", "<=", ">", ">=", "=", "!=", "<>"};
-char *statusnames[] = {"Accessible", "Accessible", "Accessible", "Running", "Online with all services", "Running", "Accessible", "Status ok", "UP"};
 char *servicetypes[] = {"Filesystem", "Directory", "File", "Process", "Remote Host", "System", "Fifo", "Program", "Network"};
 char *pathnames[] = {"Path", "Path", "Path", "Pid file", "Path", "", "Path"};
 char *icmpnames[] = {"Reply", "", "", "Destination Unreachable", "Source Quench", "Redirect", "", "", "Ping", "", "", "Time Exceeded", "Parameter Problem", "Timestamp Request", "Timestamp Reply", "Information Request", "Information Reply", "Address Mask Request", "Address Mask Reply"};
@@ -318,9 +317,7 @@ static void do_init() {
  * monit daemon receives the SIGHUP signal.
  */
 static void do_reinit() {
-        LogInfo("Awakened by the SIGHUP signal\n"
-                "Reinitializing Monit - Control file '%s'\n",
-                Run.files.control);
+        LogInfo("Reinitializing Monit -- control file '%s'\n", Run.files.control);
 
         /* Wait non-blocking for any children that has exited. Since we
          reinitialize any information about children we have setup to wait
@@ -860,7 +857,7 @@ static void version() {
         printf("out");
 #endif
         printf(" large files\n");
-        printf("Copyright (C) 2001-2016 Tildeslash Ltd. All Rights Reserved.\n");
+        printf("Copyright (C) 2001-2017 Tildeslash Ltd. All Rights Reserved.\n");
 }
 
 

@@ -55,46 +55,98 @@
 #endif
 
 #include "monit.h"
-#include "device_sysdep.h"
 
 
-char *device_mountpoint_sysdep(char *dev, char *buf, int buflen) {
-        struct mntent *mnt;
-        FILE          *mntfd;
+/* ------------------------------------------------------------- Definitions */
 
-        ASSERT(dev);
 
-        if ((mntfd = setmntent("/etc/mnttab", "r")) == NULL) {
-                LogError("Cannot open /etc/mnttab file\n");
-                return NULL;
-        }
-        while ((mnt = getmntent(mntfd)) != NULL) {
-                if (IS(dev, mnt->mnt_fsname)) {
-                        endmntent(mntfd);
-                        snprintf(buf, buflen, "%s", mnt->mnt_dir);
-                        return buf;
-                }
-        }
-        endmntent(mntfd);
-        return NULL;
+#define MOUNTS "/etc/mnttab"
+
+
+/* ----------------------------------------------------------------- Private */
+
+
+static boolean_t _getDiskActivity(void *inf) {
+        //FIXME: not implemented
+        return true;
 }
 
 
-boolean_t filesystem_usage_sysdep(char *mntpoint, Info_T inf) {
+static boolean_t _getDiskUsage(void *_inf) {
+        Info_T inf = _inf;
         struct statfs usage;
-
-        ASSERT(inf);
-
-        if (statfs(mntpoint, &usage) != 0) {
-                LogError("Error getting usage statistics for filesystem '%s' -- %s\n", mntpoint, STRERROR);
+        if (statfs(inf->filesystem->object.mountpoint, &usage) != 0) {
+                LogError("Error getting usage statistics for filesystem '%s' -- %s\n", inf->filesystem->object.mountpoint, STRERROR);
                 return false;
         }
-        inf->priv.filesystem.f_bsize =           usage.f_bsize;
-        inf->priv.filesystem.f_blocks =          usage.f_blocks;
-        inf->priv.filesystem.f_blocksfree =      usage.f_bavail;
-        inf->priv.filesystem.f_blocksfreetotal = usage.f_bfree;
-        inf->priv.filesystem.f_files =           usage.f_files;
-        inf->priv.filesystem.f_filesfree =       usage.f_ffree;
+        inf->filesystem->f_bsize = usage.f_bsize;
+        inf->filesystem->f_blocks = usage.f_blocks;
+        inf->filesystem->f_blocksfree = usage.f_bavail;
+        inf->filesystem->f_blocksfreetotal = usage.f_bfree;
+        inf->filesystem->f_files = usage.f_files;
+        inf->filesystem->f_filesfree = usage.f_ffree;
         return true;
+}
+
+
+static boolean_t _compareMountpoint(const char *mountpoint, struct mntent *mnt) {
+        return IS(mountpoint, mnt->mnt_dir);
+}
+
+
+static boolean_t _compareDevice(const char *device, struct mntent *mnt) {
+        return IS(device, mnt->mnt_fsname);
+}
+
+
+static boolean_t _setDevice(Info_T inf, const char *path, boolean_t (*compare)(const char *path, struct mntent *mnt)) {
+        FILE *f = setmntent(MOUNTS, "r");
+        if (! f) {
+                LogError("Cannot open %s\n", MOUNTS);
+                return false;
+        }
+        struct mntent *mnt;
+        while ((mnt = getmntent(f))) {
+                if (compare(path, mnt)) {
+                        strncpy(inf->filesystem->object.device, mnt->mnt_fsname, sizeof(inf->filesystem->object.device) - 1);
+                        strncpy(inf->filesystem->object.mountpoint, mnt->mnt_dir, sizeof(inf->filesystem->object.mountpoint) - 1);
+                        strncpy(inf->filesystem->object.type, mnt->mnt_type, sizeof(inf->filesystem->object.type) - 1);
+                        inf->filesystem->object.getDiskUsage = _getDiskUsage;
+                        inf->filesystem->object.getDiskActivity = _getDiskActivity;
+                        endmntent(f);
+                        inf->filesystem->object.mounted = true;
+                        return true;
+                }
+        }
+        LogError("Lookup for '%s' filesystem failed  -- not found in %s\n", path, MOUNTS);
+error:
+        endmntent(f);
+        inf->filesystem->object.mounted = false;
+        return false;
+}
+
+
+static boolean_t _getDevice(Info_T inf, const char *path, boolean_t (*compare)(const char *path, struct mntent *mnt)) {
+        if (_setDevice(inf, path, compare)) {
+                return (inf->filesystem->object.getDiskUsage(inf) && inf->filesystem->object.getDiskActivity(inf));
+        }
+        return false;
+}
+
+
+/* ------------------------------------------------------------------ Public */
+
+
+boolean_t Filesystem_getByMountpoint(Info_T inf, const char *path) {
+        ASSERT(inf);
+        ASSERT(path);
+        return _getDevice(inf, path, _compareMountpoint);
+}
+
+
+boolean_t Filesystem_getByDevice(Info_T inf, const char *path) {
+        ASSERT(inf);
+        ASSERT(path);
+        return _getDevice(inf, path, _compareDevice);
 }
 

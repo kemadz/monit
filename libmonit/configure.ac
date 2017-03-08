@@ -62,31 +62,6 @@ AC_ARG_ENABLE(profiling,
     ]
 )
 
-AC_ARG_ENABLE([openssl],
-        AS_HELP_STRING([--enable-openssl(=<path>)], 
-                [Link Monit with openssl. An optional path argument may
-                be given to specify the top-level directory to search for
-                openssl to link with]),
-     [
-        openssl="true"
-        if test "x$enableval" = "xyes"; then
-		AC_CHECK_LIB([ssl], [SSL_library_init], [], [AC_MSG_ERROR([libssl not found])])
-		AC_CHECK_LIB([crypto], [SHA1_Init], [], [AC_MSG_ERROR([libcrypto not found])])
-	else
-                AC_MSG_CHECKING([for openssl in $enableval])
-                LDFLAGS="-L$enableval/lib -lssl -lcrypto $LDFLAGS "
-                CPPFLAGS="-I$enableval/include $CPPFLAGS"
-                if test -r "$enableval/lib/libssl.a" -a -r "$enableval/lib/libcrypto.a"; then
-                        AC_MSG_RESULT([ok])
-                else
-                       AC_MSG_ERROR([openssl not found in $enableval])
-                fi
-        fi
-     ],[
-        openssl="false"
-     ]
-)
-
 AC_ARG_WITH([zlib],
         AS_HELP_STRING([--with-zlib(=<path>)],
                 [Link Monit with zlib. An optional path argument may
@@ -261,7 +236,7 @@ then
    AC_DEFINE([HPUX], 1, [Define to 1 if the system is HPUX])
 elif test "$architecture" = "NetBSD"
 then
-   CFLAGS="$CFLAGS -D_REENTRANT"
+   CFLAGS="$CFLAGS -D_REENTRANT -Wno-char-subscripts"
    AC_DEFINE([NETBSD], 1, [Define to 1 if the system is NETBSD])
 elif test "$architecture" = "AIX"
 then
@@ -296,31 +271,6 @@ if test "x$GCC" = "xyes"; then
         CFLAGS="-Wno-address $CFLAGS"
         AC_COMPILE_IFELSE([AC_LANG_PROGRAM([], [return 0;])], [], [CFLAGS="$svd_CFLAGS"])
 fi
-
-# ------------------------------------------------------------------------
-# Atomic support
-# ------------------------------------------------------------------------
-# AC_MSG_CHECKING(for Atomic support)
-# if test `uname` = "Darwin" -o `uname` = "FreeBSD" 
-# then
-#         AC_MSG_RESULT(yes)
-# elif test `uname` = "SunOS"
-# then
-#         AC_CHECK_HEADER([atomic.h], 
-#         [AC_MSG_RESULT(yes)],
-#         [AC_MSG_ERROR([atomic.h is required for atomic support])])
-# else
-#         AC_RUN_IFELSE([AC_LANG_PROGRAM([],[
-#              #if ((__GNUC__ > 4) || ((__GNUC__ == 4) && (__GNUC_MINOR__ >= 1)))
-#              return 0;
-#              #else
-#              return 1;
-#              #endif
-# 	])],
-# 	[AC_MSG_RESULT(yes)],
-# 	[AC_MSG_FAILURE([GCC version > 4.1 is required for atomic support])])
-# fi
-
 
 # ------------------------------------------------------------------------
 # IPv6 Support
@@ -382,11 +332,6 @@ if test "xfalse" = "x$profile"; then
 echo "|   Profiling:                                    DISABLED   |"
 else
 echo "|   Profiling:                                    ENABLED    |"
-fi
-if test "xtrue" = "x$openssl"; then
-echo "|   Openssl:                                      ENABLED    |"
-else
-echo "|   Openssl:                                      DISABLED   |"
 fi
 if test "xfalse" = "x$zlib"; then
 echo "|   Compression:                                  DISABLED   |"

@@ -225,7 +225,7 @@ static boolean_t _doConnect(int s, const struct sockaddr *addr, socklen_t addrle
 }
 
 
-T _createIpSocket(const char *host, const struct sockaddr *addr, socklen_t addrlen, const struct sockaddr *localaddr, socklen_t localaddrlen, int family, int type, int protocol, SslOptions_T ssl, int timeout) {
+T _createIpSocket(const char *host, const struct sockaddr *addr, socklen_t addrlen, const struct sockaddr *localaddr, socklen_t localaddrlen, int family, int type, int protocol, SslOptions_T options, int timeout) {
         ASSERT(host);
         char error[STRLEN];
         int s = socket(family, type, protocol);
@@ -248,10 +248,10 @@ T _createIpSocket(const char *host, const struct sockaddr *addr, socklen_t addrl
                                         S->host = Str_dup(host);
                                         S->port = _getPort(addr);
                                         S->connection_type = Connection_Client;
-                                        if (ssl.flags == SSL_Enabled) {
+                                        if (options->flags == SSL_Enabled) {
                                                 TRY
                                                 {
-                                                        Socket_enableSsl(S, ssl, host);
+                                                        Socket_enableSsl(S, options, host);
                                                 }
                                                 ELSE
                                                 {
@@ -281,9 +281,6 @@ error:
 struct addrinfo *_resolve(const char *hostname, int port, Socket_Type type, Socket_Family family) {
         ASSERT(hostname);
         struct addrinfo *result, hints = {
-#ifdef AI_ADDRCONFIG
-                .ai_flags = AI_ADDRCONFIG,
-#endif
                 .ai_socktype = type,
                 .ai_protocol = type == Socket_Udp ? IPPROTO_UDP : IPPROTO_TCP
         };
@@ -297,6 +294,9 @@ struct addrinfo *_resolve(const char *hostname, int port, Socket_Type type, Sock
 #ifdef HAVE_IPV6
                 case Socket_Ip6:
                         hints.ai_family = AF_INET6;
+#ifdef AI_ADDRCONFIG
+                        hints.ai_flags = AI_ADDRCONFIG;
+#endif
                         break;
 #endif
                 default:
@@ -318,11 +318,12 @@ struct addrinfo *_resolve(const char *hostname, int port, Socket_Type type, Sock
 
 
 T Socket_new(const char *host, int port, Socket_Type type, Socket_Family family, Ssl_Flags flags, int timeout) {
-        return Socket_create(host, port, type, family, (SslOptions_T){.flags = flags, .version = SSL_Auto}, timeout);
+        struct SslOptions_T options = {.flags = flags};
+        return Socket_create(host, port, type, family, &options, timeout);
 }
 
 
-T Socket_create(const char *host, int port, Socket_Type type, Socket_Family family, SslOptions_T ssl, int timeout) {
+T Socket_create(const char *host, int port, Socket_Type type, Socket_Family family, SslOptions_T options, int timeout) {
         ASSERT(host);
         ASSERT(timeout > 0);
         volatile T S = NULL;
@@ -333,7 +334,7 @@ T Socket_create(const char *host, int port, Socket_Type type, Socket_Family fami
                 for (struct addrinfo *r = result; r && S == NULL; r = r->ai_next) {
                         TRY
                         {
-                                S = _createIpSocket(host, r->ai_addr, r->ai_addrlen, NULL, 0, r->ai_family, r->ai_socktype, r->ai_protocol, ssl, timeout);
+                                S = _createIpSocket(host, r->ai_addr, r->ai_addrlen, NULL, 0, r->ai_family, r->ai_socktype, r->ai_protocol, options, timeout);
                         }
                         ELSE
                         {
@@ -357,7 +358,7 @@ T Socket_createUnix(const char *path, Socket_Type type, int timeout) {
                 struct sockaddr_un unixsocket_client = {};
                 if (type == Socket_Udp) {
                         unixsocket_client.sun_family = AF_UNIX;
-                        snprintf(unixsocket_client.sun_path, sizeof(unixsocket_client.sun_path), "/tmp/monit_%llx.sock", (long long unsigned)&unixsocket_client);
+                        snprintf(unixsocket_client.sun_path, sizeof(unixsocket_client.sun_path), "/tmp/monit_%p.sock", &unixsocket_client);
                         if (bind(s, (struct sockaddr *) &unixsocket_client, sizeof(unixsocket_client)) != 0) {
                                 LogError("Unix socket %s bind error -- %s\n", unixsocket_client.sun_path, STRERROR);
                                 goto error;
@@ -365,7 +366,7 @@ T Socket_createUnix(const char *path, Socket_Type type, int timeout) {
                 }
                 struct sockaddr_un unixsocket_server = {};
                 unixsocket_server.sun_family = AF_UNIX;
-                strncpy(unixsocket_server.sun_path, path, sizeof(unixsocket_server.sun_path));
+                strncpy(unixsocket_server.sun_path, path, sizeof(unixsocket_server.sun_path) - 1);
                 if (Net_setNonBlocking(s)) {
                         char error[STRLEN];
                         if (_doConnect(s, (struct sockaddr *)&unixsocket_server, sizeof(unixsocket_server), timeout, error, sizeof(error))) {
@@ -583,10 +584,14 @@ static void _testIp(Port_T p) {
                                 volatile T S = NULL;
                                 TRY
                                 {
-                                        S = _createIpSocket(p->hostname, r->ai_addr, r->ai_addrlen, localaddr, p->outgoing.addrlen, r->ai_family, r->ai_socktype, r->ai_protocol, p->target.net.ssl, p->timeout);
+                                        S = _createIpSocket(p->hostname, r->ai_addr, r->ai_addrlen, localaddr, p->outgoing.addrlen, r->ai_family, r->ai_socktype, r->ai_protocol, &(p->target.net.ssl.options), p->timeout);
                                         S->Port = p;
+#ifdef HAVE_OPENSSL
+                                        p->target.net.ssl.certificate.validDays = Ssl_getCertificateValidDays(S->ssl);
+#endif
                                         p->protocol->check(S);
                                         is_available = Connection_Ok;
+
                                 }
                                 ELSE
                                 {
@@ -647,38 +652,11 @@ void Socket_test(void *P) {
 }
 
 
-void Socket_enableSsl(T S, SslOptions_T ssl, const char *name)  {
+void Socket_enableSsl(T S, SslOptions_T options, const char *name)  {
         assert(S);
 #ifdef HAVE_OPENSSL
-        if ((S->ssl = Ssl_new(ssl.version != -1 ? ssl.version : Run.ssl.version != -1 ? Run.ssl.version : SSL_Auto,
-                              ssl.CACertificateFile ? ssl.CACertificateFile : Run.ssl.CACertificateFile ? Run.ssl.CACertificateFile : NULL,
-                              ssl.CACertificatePath ? ssl.CACertificatePath : Run.ssl.CACertificatePath ? Run.ssl.CACertificatePath : NULL,
-                              ssl.clientpemfile ? ssl.clientpemfile : Run.ssl.clientpemfile ? Run.ssl.clientpemfile : NULL)))
-        {
-                // Set SSL options with fallback to global SSL options
-
-                if (ssl.verify != -1)
-                        Ssl_setVerifyCertificates(S->ssl, ssl.verify);
-                else if (Run.ssl.verify != -1)
-                        Ssl_setVerifyCertificates(S->ssl, Run.ssl.verify);
-
-                if (ssl.allowSelfSigned != -1)
-                        Ssl_setAllowSelfSignedCertificates(S->ssl, ssl.allowSelfSigned);
-                else if (Run.ssl.allowSelfSigned != -1)
-                        Ssl_setAllowSelfSignedCertificates(S->ssl, Run.ssl.allowSelfSigned);
-
-                if (ssl.minimumValidDays > 0)
-                        Ssl_setCertificateMinimumValidDays(S->ssl, ssl.minimumValidDays);
-                else if (Run.ssl.minimumValidDays > 0)
-                        Ssl_setCertificateMinimumValidDays(S->ssl, Run.ssl.minimumValidDays);
-
-                if (ssl.checksum)
-                        Ssl_setCertificateChecksum(S->ssl, ssl.checksumType, ssl.checksum);
-                else if (Run.ssl.checksum)
-                        Ssl_setCertificateChecksum(S->ssl, Run.ssl.checksumType, Run.ssl.checksum);
-
+        if ((S->ssl = Ssl_new(options)))
                 Ssl_connect(S->ssl, S->socket, S->timeout, name);
-        }
 #endif
 }
 

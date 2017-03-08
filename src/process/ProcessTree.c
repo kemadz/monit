@@ -60,6 +60,10 @@
 #include <unistd.h>
 #endif
 
+#ifdef HAVE_COREFOUNDATION_COREFOUNDATION_H
+#include <CoreFoundation/CoreFoundation.h>
+#endif
+
 #include "monit.h"
 #include "event.h"
 #include "ProcessTree.h"
@@ -152,12 +156,12 @@ static void _fillProcessTree(ProcessTree_T *pt, int index) {
  * @return Process' CPU usage [%] since last cycle
  */
 static float _cpuUsage(ProcessTree_T *now, ProcessTree_T *prev, double delta) {
-        if (systeminfo.cpus > 0 && delta > 0 && prev->cpu.time > 0 && now->cpu.time > prev->cpu.time) {
+        if (systeminfo.cpu.count > 0 && delta > 0 && prev->cpu.time > 0 && now->cpu.time > prev->cpu.time) {
                 int divisor;
                 if (now->threads > 1) {
-                        if (now->threads >= systeminfo.cpus) {
+                        if (now->threads >= systeminfo.cpu.count) {
                                 // Multithreaded application with more threads then CPU cores
-                                divisor = systeminfo.cpus;
+                                divisor = systeminfo.cpu.count;
                         } else {
                                 // Multithreaded application with less threads then CPU cores
                                 divisor = now->threads;
@@ -271,29 +275,37 @@ boolean_t ProcessTree_updateProcess(Service_T s, pid_t pid) {
         ASSERT(s);
 
         /* save the previous pid and set actual one */
-        s->inf->priv.process._pid = s->inf->priv.process.pid;
-        s->inf->priv.process.pid  = pid;
+        s->inf.process->_pid = s->inf.process->pid;
+        s->inf.process->pid  = pid;
 
         int leaf = _findProcess(pid, ptree, ptreesize);
         if (leaf != -1) {
                 /* save the previous ppid and set actual one */
-                s->inf->priv.process._ppid             = s->inf->priv.process.ppid;
-                s->inf->priv.process.ppid              = ptree[leaf].ppid;
-                s->inf->priv.process.uid               = ptree[leaf].cred.uid;
-                s->inf->priv.process.euid              = ptree[leaf].cred.euid;
-                s->inf->priv.process.gid               = ptree[leaf].cred.gid;
-                s->inf->priv.process.uptime            = ptree[leaf].uptime;
-                s->inf->priv.process.threads           = ptree[leaf].threads;
-                s->inf->priv.process.children          = ptree[leaf].children.total;
-                s->inf->priv.process.zombie            = ptree[leaf].zombie;
-                s->inf->priv.process.cpu_percent       = ptree[leaf].cpu.usage;
-                s->inf->priv.process.total_cpu_percent = ptree[leaf].cpu.usage_total > 100. ? 100. : ptree[leaf].cpu.usage_total;
-                s->inf->priv.process.mem               = ptree[leaf].memory.usage;
-                s->inf->priv.process.total_mem         = ptree[leaf].memory.usage_total;
-                if (systeminfo.mem_max > 0) {
-                        s->inf->priv.process.total_mem_percent = ptree[leaf].memory.usage_total >= systeminfo.mem_max ? 100. : (100. * (double)ptree[leaf].memory.usage_total / (double)systeminfo.mem_max);
-                        s->inf->priv.process.mem_percent       = ptree[leaf].memory.usage >= systeminfo.mem_max ? 100. : (100. * (double)ptree[leaf].memory.usage / (double)systeminfo.mem_max);
+                s->inf.process->_ppid             = s->inf.process->ppid;
+                s->inf.process->ppid              = ptree[leaf].ppid;
+                s->inf.process->uid               = ptree[leaf].cred.uid;
+                s->inf.process->euid              = ptree[leaf].cred.euid;
+                s->inf.process->gid               = ptree[leaf].cred.gid;
+                s->inf.process->uptime            = ptree[leaf].uptime;
+                s->inf.process->threads           = ptree[leaf].threads;
+                s->inf.process->children          = ptree[leaf].children.total;
+                s->inf.process->zombie            = ptree[leaf].zombie;
+                s->inf.process->cpu_percent       = ptree[leaf].cpu.usage;
+                s->inf.process->total_cpu_percent = ptree[leaf].cpu.usage_total > 100. ? 100. : ptree[leaf].cpu.usage_total;
+                s->inf.process->mem               = ptree[leaf].memory.usage;
+                s->inf.process->total_mem         = ptree[leaf].memory.usage_total;
+                if (systeminfo.memory.size > 0) {
+                        s->inf.process->total_mem_percent = ptree[leaf].memory.usage_total >= systeminfo.memory.size ? 100. : (100. * (double)ptree[leaf].memory.usage_total / (double)systeminfo.memory.size);
+                        s->inf.process->mem_percent       = ptree[leaf].memory.usage >= systeminfo.memory.size ? 100. : (100. * (double)ptree[leaf].memory.usage / (double)systeminfo.memory.size);
                 }
+                if (ptree[leaf].read.bytes)
+                        Statistics_update(&(s->inf.process->read.bytes), ptree[leaf].read.time, ptree[leaf].read.bytes);
+                if (ptree[leaf].read.operations)
+                        Statistics_update(&(s->inf.process->read.operations), ptree[leaf].read.time, ptree[leaf].read.operations);
+                if (ptree[leaf].write.bytes)
+                        Statistics_update(&(s->inf.process->write.bytes), ptree[leaf].write.time, ptree[leaf].write.bytes);
+                if (ptree[leaf].write.operations)
+                        Statistics_update(&(s->inf.process->write.operations), ptree[leaf].write.time, ptree[leaf].write.operations);
                 return true;
         }
         Util_resetInfo(s);
@@ -313,10 +325,10 @@ time_t ProcessTree_getProcessUptime(pid_t pid) {
 pid_t ProcessTree_findProcess(Service_T s) {
         ASSERT(s);
         // Test the cached PID first
-        if (s->inf->priv.process.pid > 0) {
+        if (s->inf.process->pid > 0) {
                 errno = 0;
-                if (getpgid(s->inf->priv.process.pid) > -1 || errno == EPERM)
-                        return s->inf->priv.process.pid;
+                if (getpgid(s->inf.process->pid) > -1 || errno == EPERM)
+                        return s->inf.process->pid;
         }
         // If the cached PID is not running, scan for the process again
         if (s->matchlist) {
@@ -329,7 +341,7 @@ pid_t ProcessTree_findProcess(Service_T s) {
                 } else {
                         DEBUG("Process information not available -- skipping service %s process existence check for this cycle\n", s->name);
                         // Return value is NOOP - it is based on existing errors bitmap so we don't generate false recovery/failures
-                        return ! (s->error & Event_Nonexist);
+                        return ! (s->error & Event_NonExist);
                 }
         } else {
                 pid_t pid = Util_getPid(s->path);
@@ -413,9 +425,34 @@ boolean_t init_system_info(void) {
                 LogError("'%s' resource monitoring initialization error -- uname failed: %s\n", Run.system->name, STRERROR);
                 return false;
         }
-        systeminfo.total_cpu_user_percent = -1.;
-        systeminfo.total_cpu_syst_percent = -1.;
-        systeminfo.total_cpu_wait_percent = -1.;
+#ifdef HAVE_COREFOUNDATION_COREFOUNDATION_H
+        CFURLRef url = CFURLCreateWithFileSystemPath(NULL, CFSTR("/System/Library/CoreServices/SystemVersion.plist"), kCFURLPOSIXPathStyle, false);
+        if (url) {
+                CFReadStreamRef stream = CFReadStreamCreateWithFile(NULL, url);
+                if (stream) {
+                        if (CFReadStreamOpen(stream)) {
+                                CFPropertyListRef propertyList = CFPropertyListCreateWithStream(NULL, stream, 0, kCFPropertyListImmutable, NULL, NULL);
+                                if (propertyList) {
+                                        CFStringRef value = CFDictionaryGetValue(propertyList, CFSTR("ProductName"));
+                                        if (value) {
+                                                snprintf(systeminfo.uname.sysname, sizeof(systeminfo.uname.sysname), "%s", CFStringGetCStringPtr(value, CFStringGetSystemEncoding()));
+                                        }
+                                        value = CFDictionaryGetValue(propertyList, CFSTR("ProductVersion"));
+                                        if (value) {
+                                                snprintf(systeminfo.uname.release, sizeof(systeminfo.uname.release), "%s", CFStringGetCStringPtr(value, CFStringGetSystemEncoding()));
+                                        }
+                                        CFRelease(propertyList);
+                                }
+                                CFReadStreamClose(stream);
+                        }
+                        CFRelease(stream);
+                }
+                CFRelease(url);
+        }
+#endif
+        systeminfo.cpu.usage.user = -1.;
+        systeminfo.cpu.usage.system = -1.;
+        systeminfo.cpu.usage.wait = -1.;
         return (init_process_info_sysdep());
 }
 
@@ -432,8 +469,8 @@ boolean_t update_system_info() {
                         LogError("'%s' statistic error -- memory usage data collection failed\n", Run.system->name);
                         goto error2;
                 }
-                systeminfo.total_mem_percent  = systeminfo.mem_max > 0ULL ? (100. * (double)systeminfo.total_mem / (double)systeminfo.mem_max) : 0.;
-                systeminfo.total_swap_percent = systeminfo.swap_max > 0ULL ? (100. * (double)systeminfo.total_swap / (double)systeminfo.swap_max) : 0.;
+                systeminfo.memory.usage.percent  = systeminfo.memory.size > 0ULL ? (100. * (double)systeminfo.memory.usage.bytes / (double)systeminfo.memory.size) : 0.;
+                systeminfo.swap.usage.percent = systeminfo.swap.size > 0ULL ? (100. * (double)systeminfo.swap.usage.bytes / (double)systeminfo.swap.size) : 0.;
 
                 if (! used_system_cpu_sysdep(&systeminfo)) {
                         LogError("'%s' statistic error -- cpu usage data collection failed\n", Run.system->name);
@@ -448,14 +485,14 @@ error1:
         systeminfo.loadavg[1] = 0;
         systeminfo.loadavg[2] = 0;
 error2:
-        systeminfo.total_mem = 0ULL;
-        systeminfo.total_mem_percent = 0.;
-        systeminfo.total_swap = 0ULL;
-        systeminfo.total_swap_percent = 0.;
+        systeminfo.memory.usage.bytes = 0ULL;
+        systeminfo.memory.usage.percent = 0.;
+        systeminfo.swap.usage.bytes = 0ULL;
+        systeminfo.swap.usage.percent = 0.;
 error3:
-        systeminfo.total_cpu_user_percent = 0.;
-        systeminfo.total_cpu_syst_percent = 0.;
-        systeminfo.total_cpu_wait_percent = 0.;
+        systeminfo.cpu.usage.user = 0.;
+        systeminfo.cpu.usage.system = 0.;
+        systeminfo.cpu.usage.wait = 0.;
 
         return false;
 }

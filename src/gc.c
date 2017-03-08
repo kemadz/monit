@@ -47,7 +47,7 @@ static void _gc_service(Service_T *);
 static void _gc_servicegroup(ServiceGroup_T *);
 static void _gc_mail_server(MailServer_T *);
 static void _gcportlist(Port_T *);
-static void _gcfilesystem(Filesystem_T *);
+static void _gcfilesystem(FileSystem_T *);
 static void _gcicmp(Icmp_T *);
 static void _gcpql(Resource_T *);
 static void _gcptl(Timestamp_T *);
@@ -68,13 +68,15 @@ static void _gcuid(Uid_T *);
 static void _gcgid(Gid_T *);
 static void _gcpid(Pid_T *);
 static void _gcppid(Pid_T *);
-static void _gcfsflag(Fsflag_T *);
-static void _gcnonexist(Nonexist_T *);
+static void _gcfsflag(FsFlag_T *);
+static void _gcnonexist(NonExist_T *);
+static void _gcexist(Exist_T *);
 static void _gcgeneric(Generic_T *);
 static void _gcath(Auth_T *);
 static void _gc_mmonit(Mmonit_T *);
 static void _gc_url(URL_T *);
 static void _gc_request(Request_T *);
+static void _gcssloptions(SslOptions_T o);
 
 
 /**
@@ -107,8 +109,7 @@ void gc() {
         FREE(Run.mygroup);
         if (Run.httpd.flags & Httpd_Net) {
                 FREE(Run.httpd.socket.net.address);
-                FREE(Run.httpd.socket.net.ssl.pem);
-                FREE(Run.httpd.socket.net.ssl.clientpem);
+                _gcssloptions(&(Run.httpd.socket.net.ssl));
         }
         if (Run.httpd.flags & Httpd_Unix)
                 FREE(Run.httpd.socket.unix.path);
@@ -158,9 +159,11 @@ void gc_event(Event_T *e) {
 /* ----------------------------------------------------------------- Private */
 
 
-static void _gcssloptions(SslOptions_T *o) {
+static void _gcssloptions(SslOptions_T o) {
         FREE(o->checksum);
+        FREE(o->pemfile);
         FREE(o->clientpemfile);
+        FREE(o->ciphers);
         FREE(o->CACertificateFile);
         FREE(o->CACertificatePath);
 }
@@ -244,6 +247,8 @@ static void _gc_service(Service_T *s) {
                 _gcfsflag(&(*s)->fsflaglist);
         if ((*s)->nonexistlist)
                 _gcnonexist(&(*s)->nonexistlist);
+        if ((*s)->existlist)
+                _gcexist(&(*s)->existlist);
         if ((*s)->dependantlist)
                 _gcpdl(&(*s)->dependantlist);
         if ((*s)->start)
@@ -264,10 +269,28 @@ static void _gc_service(Service_T *s) {
                 _gc_eventaction(&(*s)->action_ACTION);
         if ((*s)->eventlist)
                 gc_event(&(*s)->eventlist);
-        if ((*s)->inf) {
-                if ((*s)->type == Service_Net)
-                        Link_free(&((*s)->inf->priv.net.stats));
-                FREE((*s)->inf);
+        switch ((*s)->type) {
+                case Service_Directory:
+                        FREE((*s)->inf.directory);
+                        break;
+                case Service_Fifo:
+                        FREE((*s)->inf.fifo);
+                        break;
+                case Service_File:
+                        FREE((*s)->inf.file);
+                        break;
+                case Service_Filesystem:
+                        FREE((*s)->inf.filesystem);
+                        break;
+                case Service_Net:
+                        Link_free(&((*s)->inf.net->stats));
+                        FREE((*s)->inf.net);
+                        break;
+                case Service_Process:
+                        FREE((*s)->inf.process);
+                        break;
+                default:
+                        break;
         }
         FREE((*s)->name);
         FREE((*s)->path);
@@ -350,7 +373,7 @@ static void _gcportlist(Port_T *p) {
         if ((*p)->family == Socket_Unix)
                 FREE((*p)->target.unix.pathname);
         else
-                _gcssloptions(&((*p)->target.net.ssl));
+                _gcssloptions(&((*p)->target.net.ssl.options));
         FREE((*p)->hostname);
         FREE((*p)->outgoing.ip);
         if ((*p)->protocol->check == check_http) {
@@ -392,7 +415,7 @@ static void _gcportlist(Port_T *p) {
 }
 
 
-static void _gcfilesystem(Filesystem_T *d) {
+static void _gcfilesystem(FileSystem_T *d) {
         ASSERT(d&&*d);
         if ((*d)->next)
                 _gcfilesystem(&(*d)->next);
@@ -569,7 +592,7 @@ static void _gcppid(Pid_T *s) {
 }
 
 
-static void _gcfsflag(Fsflag_T *s) {
+static void _gcfsflag(FsFlag_T *s) {
         ASSERT(s);
         if ((*s)->next)
                 _gcfsflag(&(*s)->next);
@@ -579,10 +602,20 @@ static void _gcfsflag(Fsflag_T *s) {
 }
 
 
-static void _gcnonexist(Nonexist_T *s) {
+static void _gcnonexist(NonExist_T *s) {
         ASSERT(s);
         if ((*s)->next)
                 _gcnonexist(&(*s)->next);
+        if ((*s)->action)
+                _gc_eventaction(&(*s)->action);
+        FREE(*s);
+}
+
+
+static void _gcexist(Exist_T *s) {
+        ASSERT(s);
+        if ((*s)->next)
+                _gcexist(&(*s)->next);
         if ((*s)->action)
                 _gc_eventaction(&(*s)->action);
         FREE(*s);

@@ -267,7 +267,9 @@ static void printevents(unsigned int events) {
                         printf("Data ");
                 if (IS_EVENT_SET(events, Event_Exec))
                         printf("Exec ");
-                if (IS_EVENT_SET(events, Event_Fsflag))
+                if (IS_EVENT_SET(events, Event_Exist))
+                        printf("Exist ");
+                if (IS_EVENT_SET(events, Event_FsFlag))
                         printf("Fsflags ");
                 if (IS_EVENT_SET(events, Event_Gid))
                         printf("Gid ");
@@ -279,7 +281,7 @@ static void printevents(unsigned int events) {
                         printf("Invalid ");
                 if (IS_EVENT_SET(events, Event_Link))
                         printf("Link ");
-                if (IS_EVENT_SET(events, Event_Nonexist))
+                if (IS_EVENT_SET(events, Event_NonExist))
                         printf("Nonexist ");
                 if (IS_EVENT_SET(events, Event_PacketIn))
                         printf("PacketIn ");
@@ -846,7 +848,7 @@ void Util_printRunList() {
                         printf("%s with timeout %s", c->url->url, Str_milliToTime(c->timeout, (char[23]){}));
 #ifdef HAVE_OPENSSL
                         if (c->ssl.flags) {
-                                printf(" using SSL/TLS");
+                                printf(" using TLS");
                                 const char *options = Ssl_printOptions(&c->ssl, (char[STRLEN]){}, STRLEN);
                                 if (options && *options)
                                         printf(" with options {%s}", options);
@@ -854,13 +856,11 @@ void Util_printRunList() {
                                         printf(" and certificate checksum %s equal to '%s'", checksumnames[c->ssl.checksumType], c->ssl.checksum);
                         }
 #endif
-                        if (c->url->user)
-                                printf(" using credentials");
+                        if (Run.flags & Run_MmonitCredentials && c->url->user)
+                                printf(" with credentials");
                         if (c->next)
                                printf(",\n                    = ");
                 }
-                if (! (Run.flags & Run_MmonitCredentials))
-                        printf("\n                      register without credentials");
                 printf("\n");
         }
 
@@ -871,7 +871,7 @@ void Util_printRunList() {
                         printf("%s:%d", mta->host, mta->port);
 #ifdef HAVE_OPENSSL
                         if (mta->ssl.flags) {
-                                printf(" using SSL/TLS");
+                                printf(" using TLS");
                                 const char *options = Ssl_printOptions(&mta->ssl, (char[STRLEN]){}, STRLEN);
                                 if (options && *options)
                                         printf(" with options {%s}", options);
@@ -908,22 +908,18 @@ void Util_printRunList() {
         printf(" %-18s = %s\n", "Start monit httpd", (Run.httpd.flags & Httpd_Net || Run.httpd.flags & Httpd_Unix) ? "True" : "False");
 
         if (Run.httpd.flags & Httpd_Net || Run.httpd.flags & Httpd_Unix) {
-
                 if (Run.httpd.flags & Httpd_Net) {
                         printf(" %-18s = %s\n", "httpd bind address", Run.httpd.socket.net.address ? Run.httpd.socket.net.address : "Any/All");
                         printf(" %-18s = %d\n", "httpd portnumber", Run.httpd.socket.net.port);
-                        printf(" %-18s = %s\n", "httpd ssl", Run.httpd.flags & Httpd_Ssl ? "Enabled" : "Disabled");
-                } else if (Run.httpd.flags & Httpd_Unix) {
+#ifdef HAVE_OPENSSL
+                        const char *options = Ssl_printOptions(&(Run.httpd.socket.net.ssl), (char[STRLEN]){}, STRLEN);
+                        if (options && *options)
+                                printf(" %-18s = %s\n", "httpd encryption", options);
+#endif
+                }
+                if (Run.httpd.flags & Httpd_Unix)
                         printf(" %-18s = %s\n", "httpd unix socket", Run.httpd.socket.unix.path);
-                }
                 printf(" %-18s = %s\n", "httpd signature", Run.httpd.flags & Httpd_Signature ? "Enabled" : "Disabled");
-                if (Run.httpd.flags & Httpd_Ssl) {
-                        printf(" %-18s = %s\n", "httpd PEM file", Run.httpd.socket.net.ssl.pem);
-                        if (Run.httpd.socket.net.ssl.clientpem)
-                                printf(" %-18s = %s\n", "Client cert file", Run.httpd.socket.net.ssl.clientpem);
-                        printf(" %-18s = %s\n", "httpd allow self cert", (Run.httpd.flags & Httpd_AllowSelfSignedCertificates) ? "True" : "False");
-                }
-
                 printf(" %-18s = %s\n", "httpd auth. style",
                        Run.httpd.credentials && Engine_hasAllow() ? "Basic Authentication and Host/Net allow list" : Run.httpd.credentials ? "Basic Authentication" : Engine_hasAllow() ? "Host/Net allow list" : "No authentication!");
 
@@ -1009,9 +1005,14 @@ void Util_printService(Service_T s) {
                 printf("\n");
         }
 
-        for (Nonexist_T o = s->nonexistlist; o; o = o->next) {
+        for (NonExist_T o = s->nonexistlist; o; o = o->next) {
                 StringBuffer_clear(buf);
                 printf(" %-20s = %s\n", "Existence", StringBuffer_toString(Util_printRule(buf, o->action, "if does not exist")));
+        }
+
+        for (Exist_T o = s->existlist; o; o = o->next) {
+                StringBuffer_clear(buf);
+                printf(" %-20s = %s\n", "Non-Existence", StringBuffer_toString(Util_printRule(buf, o->action, "if exist")));
         }
 
         for (Dependant_T o = s->dependantlist; o; o = o->next)
@@ -1028,7 +1029,7 @@ void Util_printService(Service_T s) {
                 printf(" %-20s = %s\n", "PPid", StringBuffer_toString(Util_printRule(buf, o->action, "if changed")));
         }
 
-        for (Fsflag_T o = s->fsflaglist; o; o = o->next) {
+        for (FsFlag_T o = s->fsflaglist; o; o = o->next) {
                 StringBuffer_clear(buf);
                 printf(" %-20s = %s\n", "Filesystem flags", StringBuffer_toString(Util_printRule(buf, o->action, "if changed")));
         }
@@ -1110,15 +1111,15 @@ void Util_printService(Service_T s) {
                 if (o->retry > 1)
                         StringBuffer_append(buf2, " and retry %d times", o->retry);
 #ifdef HAVE_OPENSSL
-                if (o->target.net.ssl.flags) {
-                        StringBuffer_append(buf2, " using SSL/TLS");
-                        const char *options = Ssl_printOptions(&o->target.net.ssl, (char[STRLEN]){}, STRLEN);
+                if (o->target.net.ssl.options.flags) {
+                        StringBuffer_append(buf2, " using TLS");
+                        const char *options = Ssl_printOptions(&o->target.net.ssl.options, (char[STRLEN]){}, STRLEN);
                         if (options && *options)
                                 StringBuffer_append(buf2, " with options {%s}", options);
-                        if (o->target.net.ssl.minimumValidDays > 0)
-                                StringBuffer_append(buf2, " and certificate expires in more than %d days", o->target.net.ssl.minimumValidDays);
-                        if (o->target.net.ssl.checksum)
-                                StringBuffer_append(buf2, " and certificate checksum %s equal to '%s'", checksumnames[o->target.net.ssl.checksumType], o->target.net.ssl.checksum);
+                        if (o->target.net.ssl.certificate.minimumDays > 0)
+                                StringBuffer_append(buf2, " and certificate expires in more than %d days", o->target.net.ssl.certificate.minimumDays);
+                        if (o->target.net.ssl.options.checksum)
+                                StringBuffer_append(buf2, " and certificate checksum %s equal to '%s'", checksumnames[o->target.net.ssl.options.checksumType], o->target.net.ssl.options.checksum);
                 }
 #endif
                 StringBuffer_clear(buf);
@@ -1223,7 +1224,7 @@ void Util_printService(Service_T s) {
                 }
         }
 
-        for (Filesystem_T o = s->filesystemlist; o; o = o->next) {
+        for (FileSystem_T o = s->filesystemlist; o; o = o->next) {
                 StringBuffer_clear(buf);
                 if (o->resource == Resource_Inode) {
                         printf(" %-20s = %s\n", "Inodes usage limit",
@@ -1243,8 +1244,8 @@ void Util_printService(Service_T s) {
                                );
                 } else if (o->resource == Resource_Space) {
                         if (o->limit_absolute > -1) {
-                               if (s->inf->priv.filesystem.f_bsize > 0)
-                                       printf(" %-20s = %s\n", "Space usage limit", StringBuffer_toString(Util_printRule(buf, o->action, "if %s %s", operatornames[o->operator], Str_bytesToSize(o->limit_absolute * s->inf->priv.filesystem.f_bsize, buffer))));
+                               if (s->inf.filesystem->f_bsize > 0)
+                                       printf(" %-20s = %s\n", "Space usage limit", StringBuffer_toString(Util_printRule(buf, o->action, "if %s %s", operatornames[o->operator], Str_bytesToSize(o->limit_absolute * s->inf.filesystem->f_bsize, buffer))));
                                 else
                                        printf(" %-20s = %s\n", "Space usage limit", StringBuffer_toString(Util_printRule(buf, o->action, "if %s %lld blocks", operatornames[o->operator], o->limit_absolute)));
                         } else {
@@ -1252,13 +1253,23 @@ void Util_printService(Service_T s) {
                         }
                 } else if (o->resource == Resource_SpaceFree) {
                         if (o->limit_absolute > -1) {
-                               if (s->inf->priv.filesystem.f_bsize > 0)
-                                       printf(" %-20s = %s\n", "Space free limit", StringBuffer_toString(Util_printRule(buf, o->action, "if %s %s", operatornames[o->operator], Str_bytesToSize(o->limit_absolute * s->inf->priv.filesystem.f_bsize, buffer))));
+                               if (s->inf.filesystem->f_bsize > 0)
+                                       printf(" %-20s = %s\n", "Space free limit", StringBuffer_toString(Util_printRule(buf, o->action, "if %s %s", operatornames[o->operator], Str_bytesToSize(o->limit_absolute * s->inf.filesystem->f_bsize, buffer))));
                                 else
                                        printf(" %-20s = %s\n", "Space free limit", StringBuffer_toString(Util_printRule(buf, o->action, "if %s %lld blocks", operatornames[o->operator], o->limit_absolute)));
                         } else {
                                printf(" %-20s = %s\n", "Space free limit", StringBuffer_toString(Util_printRule(buf, o->action, "if %s %.1f%%", operatornames[o->operator], o->limit_percent)));
                         }
+                } else if (o->resource == Resource_ReadBytes) {
+                        printf(" %-20s = %s\n", "Read limit", StringBuffer_toString(Util_printRule(buf, o->action, "if read %s %s/s", operatornames[o->operator], Str_bytesToSize(o->limit_absolute, (char[10]){}))));
+                } else if (o->resource == Resource_ReadOperations) {
+                        printf(" %-20s = %s\n", "Read limit", StringBuffer_toString(Util_printRule(buf, o->action, "if read %s %llu operations/s", operatornames[o->operator], o->limit_absolute)));
+                } else if (o->resource == Resource_WriteBytes) {
+                        printf(" %-20s = %s\n", "Write limit", StringBuffer_toString(Util_printRule(buf, o->action, "if write %s %s/s", operatornames[o->operator], Str_bytesToSize(o->limit_absolute, (char[10]){}))));
+                } else if (o->resource == Resource_WriteOperations) {
+                        printf(" %-20s = %s\n", "Write limit", StringBuffer_toString(Util_printRule(buf, o->action, "if write %s %llu operations/s", operatornames[o->operator], o->limit_absolute)));
+                } else if (o->resource == Resource_ServiceTime) {
+                        printf(" %-20s = %s\n", "Service time limit", StringBuffer_toString(Util_printRule(buf, o->action, "if service time %s %s/operation", operatornames[o->operator], Str_milliToTime(o->limit_absolute, (char[23]){}))));
                 }
         }
 
@@ -1328,6 +1339,23 @@ void Util_printService(Service_T s) {
                         case Resource_MemoryPercentTotal:
                                 printf(" %-20s = ", "Memory usage limit (incl. children)");
                                 break;
+
+                        case Resource_ReadBytes:
+                                printf(" %-20s = ", "Disk read limit");
+                                break;
+
+                        case Resource_ReadOperations:
+                                printf(" %-20s = ", "Disk read limit");
+                                break;
+
+                        case Resource_WriteBytes:
+                                printf(" %-20s = ", "Disk write limit");
+                                break;
+
+                        case Resource_WriteOperations:
+                                printf(" %-20s = ", "Disk write limit");
+                                break;
+
                         default:
                                 break;
                 }
@@ -1358,6 +1386,16 @@ void Util_printService(Service_T s) {
                         case Resource_Threads:
                         case Resource_Children:
                                 printf("%s", StringBuffer_toString(Util_printRule(buf, o->action, "if %s %.0f", operatornames[o->operator], o->limit)));
+                                break;
+
+                        case Resource_ReadBytes:
+                        case Resource_WriteBytes:
+                                printf("%s", StringBuffer_toString(Util_printRule(buf, o->action, "if %s %s/s", operatornames[o->operator], Str_bytesToSize(o->limit, (char[10]){}))));
+                                break;
+
+                        case Resource_ReadOperations:
+                        case Resource_WriteOperations:
+                                printf("%s", StringBuffer_toString(Util_printRule(buf, o->action, "if %s %.0f operations/s", operatornames[o->operator], o->limit)));
                                 break;
 
                         default:
@@ -1465,21 +1503,21 @@ pid_t Util_getPid(char *pidfile) {
                 return 0;
         }
         if (! File_isFile(pidfile)) {
-                LogError("pidfile '%s' is not a regular file\n", pidfile);
+                DEBUG("pidfile '%s' is not a regular file\n", pidfile);
                 return 0;
         }
         if ((file = fopen(pidfile,"r")) == (FILE *)NULL) {
-                LogError("Error opening the pidfile '%s' -- %s\n", pidfile, STRERROR);
+                DEBUG("Error opening the pidfile '%s' -- %s\n", pidfile, STRERROR);
                 return 0;
         }
         if (fscanf(file, "%d", &pid) != 1) {
-                LogError("Error reading pid from file '%s'\n", pidfile);
+                DEBUG("Error reading pid from file '%s'\n", pidfile);
                 if (fclose(file))
-                        LogError("Error closing file '%s' -- %s\n", pidfile, STRERROR);
+                        DEBUG("Error closing file '%s' -- %s\n", pidfile, STRERROR);
                 return 0;
         }
         if (fclose(file))
-                LogError("Error closing file '%s' -- %s\n", pidfile, STRERROR);
+                DEBUG("Error closing file '%s' -- %s\n", pidfile, STRERROR);
 
         if (pid < 0)
                 return(0);
@@ -1661,69 +1699,84 @@ boolean_t Util_checkCredentials(char *uname, char *outside) {
 }
 
 
+static void _resetIOStatistics(IOStatistics_T S) {
+        Statistics_reset(&(S->operations));
+        Statistics_reset(&(S->bytes));
+}
+
+
 void Util_resetInfo(Service_T s) {
         switch (s->type) {
                 case Service_Filesystem:
-                        s->inf->priv.filesystem.f_bsize = 0LL;
-                        s->inf->priv.filesystem.f_blocks = 0LL;
-                        s->inf->priv.filesystem.f_blocksfree = 0LL;
-                        s->inf->priv.filesystem.f_blocksfreetotal = 0LL;
-                        s->inf->priv.filesystem.f_files = 0LL;
-                        s->inf->priv.filesystem.f_filesfree = 0LL;
-                        s->inf->priv.filesystem.inode_percent = 0.;
-                        s->inf->priv.filesystem.inode_total = 0LL;
-                        s->inf->priv.filesystem.space_percent = 0.;
-                        s->inf->priv.filesystem.space_total = 0LL;
-                        s->inf->priv.filesystem._flags = -1;
-                        s->inf->priv.filesystem.flags = -1;
-                        s->inf->priv.filesystem.mode = -1;
-                        s->inf->priv.filesystem.uid = -1;
-                        s->inf->priv.filesystem.gid = -1;
+                        s->inf.filesystem->f_bsize = 0LL;
+                        s->inf.filesystem->f_blocks = 0LL;
+                        s->inf.filesystem->f_blocksfree = 0LL;
+                        s->inf.filesystem->f_blocksfreetotal = 0LL;
+                        s->inf.filesystem->f_files = 0LL;
+                        s->inf.filesystem->f_filesfree = 0LL;
+                        s->inf.filesystem->inode_percent = 0.;
+                        s->inf.filesystem->inode_total = 0LL;
+                        s->inf.filesystem->space_percent = 0.;
+                        s->inf.filesystem->space_total = 0LL;
+                        s->inf.filesystem->flagsChanged = false;
+                        *(s->inf.filesystem->flags) = 0;
+                        s->inf.filesystem->mode = -1;
+                        s->inf.filesystem->uid = -1;
+                        s->inf.filesystem->gid = -1;
+                        _resetIOStatistics(&(s->inf.filesystem->read));
+                        _resetIOStatistics(&(s->inf.filesystem->write));
+                        Statistics_reset(&(s->inf.filesystem->time.read));
+                        Statistics_reset(&(s->inf.filesystem->time.write));
+                        Statistics_reset(&(s->inf.filesystem->time.wait));
+                        Statistics_reset(&(s->inf.filesystem->time.run));
                         break;
                 case Service_File:
-                        // persistent: st_inode, readpos
-                        s->inf->priv.file.size  = -1;
-                        s->inf->priv.file.inode_prev = 0;
-                        s->inf->priv.file.mode = -1;
-                        s->inf->priv.file.uid = -1;
-                        s->inf->priv.file.gid = -1;
-                        s->inf->priv.file.timestamp = 0;
-                        *s->inf->priv.file.cs_sum = 0;
+                        s->inf.file->size  = -1;
+                        s->inf.file->readpos = 0;
+                        s->inf.file->inode = 0;
+                        s->inf.file->inode_prev = 0;
+                        s->inf.file->mode = -1;
+                        s->inf.file->uid = -1;
+                        s->inf.file->gid = -1;
+                        s->inf.file->timestamp = 0;
+                        *s->inf.file->cs_sum = 0;
                         break;
                 case Service_Directory:
-                        s->inf->priv.directory.mode = -1;
-                        s->inf->priv.directory.uid = -1;
-                        s->inf->priv.directory.gid = -1;
-                        s->inf->priv.directory.timestamp = 0;
+                        s->inf.directory->mode = -1;
+                        s->inf.directory->uid = -1;
+                        s->inf.directory->gid = -1;
+                        s->inf.directory->timestamp = 0;
                         break;
                 case Service_Fifo:
-                        s->inf->priv.fifo.mode = -1;
-                        s->inf->priv.fifo.uid = -1;
-                        s->inf->priv.fifo.gid = -1;
-                        s->inf->priv.fifo.timestamp = 0;
+                        s->inf.fifo->mode = -1;
+                        s->inf.fifo->uid = -1;
+                        s->inf.fifo->gid = -1;
+                        s->inf.fifo->timestamp = 0;
                         break;
                 case Service_Process:
-                        s->inf->priv.process._pid = -1;
-                        s->inf->priv.process._ppid = -1;
-                        s->inf->priv.process.pid = -1;
-                        s->inf->priv.process.ppid = -1;
-                        s->inf->priv.process.uid = -1;
-                        s->inf->priv.process.euid = -1;
-                        s->inf->priv.process.gid = -1;
-                        s->inf->priv.process.zombie = false;
-                        s->inf->priv.process.threads = -1;
-                        s->inf->priv.process.children = -1;
-                        s->inf->priv.process.mem = 0ULL;
-                        s->inf->priv.process.total_mem = 0ULL;
-                        s->inf->priv.process.mem_percent = -1.;
-                        s->inf->priv.process.total_mem_percent = -1.;
-                        s->inf->priv.process.cpu_percent = -1.;
-                        s->inf->priv.process.total_cpu_percent = -1.;
-                        s->inf->priv.process.uptime = -1;
+                        s->inf.process->_pid = -1;
+                        s->inf.process->_ppid = -1;
+                        s->inf.process->pid = -1;
+                        s->inf.process->ppid = -1;
+                        s->inf.process->uid = -1;
+                        s->inf.process->euid = -1;
+                        s->inf.process->gid = -1;
+                        s->inf.process->zombie = false;
+                        s->inf.process->threads = -1;
+                        s->inf.process->children = -1;
+                        s->inf.process->mem = 0ULL;
+                        s->inf.process->total_mem = 0ULL;
+                        s->inf.process->mem_percent = -1.;
+                        s->inf.process->total_mem_percent = -1.;
+                        s->inf.process->cpu_percent = -1.;
+                        s->inf.process->total_cpu_percent = -1.;
+                        s->inf.process->uptime = -1;
+                        _resetIOStatistics(&(s->inf.process->read));
+                        _resetIOStatistics(&(s->inf.process->write));
                         break;
                 case Service_Net:
-                        if (s->inf->priv.net.stats)
-                                Link_reset(s->inf->priv.net.stats);
+                        if (s->inf.net->stats)
+                                Link_reset(s->inf.net->stats);
                         break;
                 default:
                         break;
@@ -1732,7 +1785,7 @@ void Util_resetInfo(Service_T s) {
 
 
 boolean_t Util_hasServiceStatus(Service_T s) {
-        return((s->monitor & Monitor_Yes) && ! (s->error & Event_Nonexist) && ! (s->error & Event_Data));
+        return((s->monitor & Monitor_Yes) && ! (s->error & Event_NonExist) && ! (s->error & Event_Data));
 }
 
 
@@ -1955,7 +2008,7 @@ const char *Util_portRequestDescription(Port_T p) {
 
 char *Util_portDescription(Port_T p, char *buf, int bufsize) {
         if (p->family == Socket_Ip || p->family == Socket_Ip4 || p->family == Socket_Ip6) {
-                snprintf(buf, bufsize, "[%s]:%d%s [%s/%s%s]", p->hostname, p->target.net.port, Util_portRequestDescription(p), Util_portTypeDescription(p), Util_portIpDescription(p), p->target.net.ssl.flags ? " SSL" : "");
+                snprintf(buf, bufsize, "[%s]:%d%s [%s/%s%s]", p->hostname, p->target.net.port, Util_portRequestDescription(p), Util_portTypeDescription(p), Util_portIpDescription(p), p->target.net.ssl.options.flags ? " TLS" : "");
         } else if (p->family == Socket_Unix) {
                 snprintf(buf, bufsize, "%s", p->target.unix.pathname);
         } else {

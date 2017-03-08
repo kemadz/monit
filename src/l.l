@@ -179,8 +179,11 @@ does              {/* EMPTY */}
 per               {/* EMPTY */}
 in                {/* EMPTY */}
 last              {/* EMPTY */}
+rate              {/* EMPTY */}
 capacity          {/* EMPTY */}
 option(s)?        {/* EMPTY */}
+ssl[ \t]+disable  {/* EMPTY */}
+disable[ \t]+ssl  {/* EMPTY */}
 
 {startarg}        { BEGIN(ARGUMENT_COND); return START; }
 {stoparg}         { BEGIN(ARGUMENT_COND); return STOP; }
@@ -199,8 +202,10 @@ option(s)?        {/* EMPTY */}
 if                { return IF; }
 then              { return THEN; }
 failed            { return FAILED; }
-ssl               { return SSL; }
 tls               { return SSL; }
+ssl               { return SSL; }
+ssl[ \t]+enable   { return SSL; }
+enable[ ]+ssl     { return SSL; }
 enable            { return ENABLE; }
 disable           { return DISABLE; }
 verify            { return VERIFY; }
@@ -213,6 +218,7 @@ daemon            { return DAEMON; }
 delay             { return DELAY; }
 terminal          { return TERMINAL; }
 batch             { return BATCH; }
+log               { return LOGFILE; }
 logfile           { return LOGFILE; }
 syslog            { return SYSLOG; }
 facility          { return FACILITY; }
@@ -239,6 +245,11 @@ init              { return INIT; }
 allow             { return ALLOW; }
 reject            { return REJECTOPT; }
 read[-]?only      { return READONLY; }
+disk              { return DISK; }
+read              { return READ; }
+write             { return WRITE; }
+service[ ]?time   { return SERVICETIME; }
+operation(s)?("/s")? { return OPERATION; }
 pidfile           { return PIDFILE; }
 idfile            { return IDFILE; }
 statefile         { return STATEFILE; }
@@ -341,6 +352,7 @@ sslv3             { return SSLV3; }
 tlsv1             { return TLSV1; }
 tlsv11            { return TLSV11; }
 tlsv12            { return TLSV12; }
+cipher(s)?        { return CIPHER; }
 auto              { return AUTO; }
 sslauto           { return SSLAUTO; }
 inode(s)?         { return INODE; }
@@ -382,8 +394,8 @@ md5               { return MD5HASH; }
 sha1              { return SHA1HASH; }
 crypt             { return CRYPT; }
 signature         { return SIGNATURE; }
-nonexist          { return NONEXIST; }
-exist             { return EXIST; }
+nonexist(s)?      { return NONEXIST; }
+exist(s)?         { return EXIST; }
 invalid           { return INVALID; }
 data              { return DATA; }
 recovered         { return RECOVERED; }

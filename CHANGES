@@ -1,6 +1,119 @@
-                     CHANGES version 5.20.0
+                     CHANGES version 5.22.0
 
            This file summarizes changes made since 5.0
+
+Version 5.22.0
+
+New: Renamed the "set logfile <path|syslog>" statement to "set log <path|syslog>".
+The "logfile" form is deprecated, but kept for backward compatibility.
+
+Fixed: Issue #568: cross-compilation
+
+
+Version 5.21.0
+
+New: The filesystem read/write statistics is now displayed in Monit GUI and CLI. Tests:
+    check filesystem myfs with path /dev/sda1
+        if read rate > 1 MB/s for 5 cycles then alert
+        if read rate > 500 operations/s for 5 cycles then alert
+        if write rate > 1 MB/s for 5 cycles then alert
+        if write rate > 500 operations/s for 5 cycles then alert
+        if service time > 10 milliseconds for 3 times within 5 cycles then alert
+
+New: The per-process read/write statistics is now displayed in Monit GUI and CLI. The available
+statistics depends on platform.
+Example for Linux and MacOS:
+    check process myprocess matching "myprocess"
+        if disk read > 500 kb/s for 10 cycles then alert
+        if disk write > 500 kb/s for 10 cycles then alert
+Example for AIX, DragonFlyBSD, FreeBSD, NetBSD, OpenBSD and Solaris:
+    check process myprocess matching "myprocess"
+        if disk read > 100 operations/s for 10 cycles then alert
+        if disk write > 100 operations/s for 10 cycles then alert
+
+New: It is now possible to use NFS/CIFS/SSHFS/etc. connection strings for filesystem path. Examples:
+        check filesystem mynfs with path "192.168.1.123:/home/myuser"
+        check filesystem mycifs with path "//192.168.1.123/documents"
+        check filesystem mysshfs with path "myuser@192.168.1.123:/home/myuser"
+
+New: Report filesystem type in the status output
+
+New: Linux and Solaris: cache per-filesystem mount table status and refresh only if changed
+(some filesystem mounted/unmounted).
+
+New: Extended the existence test, to allow to check that the object doesn't exist (for example
+the process is stopped). Note: this test is available for process, file, filesystem, fifo and
+directory checks only (same as non-existence test). Example:
+    check process thisShouldNotRun matching "FooBar"
+        if exists then exec "/usr/bin/pkill -9 FooBar"
+
+New: The Monit HTTP interface now allows to set the SSL/TLS version as well. The
+syntax follows the generic SSL/TLS options settings, which was introduced in
+Monit 5.15, example:
+    set httpd port 2812
+        with ssl {
+           pemfile: /etc/ssl/certs/monit.pem
+           version: TLSv12
+        }
+        allow admin:monit
+
+New: The SSL 3DES ciphers are disabled by default now (vulnerable to Sweet32 attacks).
+
+New: Issue #509: Added support to override the SSL/TLS ciphers list and enabled
+server-side ciphers preference. Example (using monit's default ciphers string):
+    set ssl {
+        ciphers: "ALL:!DES:!3DES:!RC4:!aNULL:!LOW:!EXP:!IDEA:!MD5:@STRENGTH"
+    }
+
+New: The certificate minimum valid days test now triggers the timestamp event instead
+of connection event.
+
+New: M/Monit: show MacOS version instead of Darwin kernel version.
+
+New: Show textual representation of filesystem flags instead of numeric.
+
+Fixed: Previous Monit versions may be unable to detect that the filesystem is not
+mounted in the case that mountpoint was used as a filesystem path. The reason is,
+that the mountpoint itself resides on some filesystem (for example root filesystem)
+and thus even if the filesystem is not mounted, the directory may still exist - Monit
+didn't require exact match in the mount table and allowed filesystem subdirectory or even
+regular file to be used as filesystem path. The exact mountpoint match is now required,
+so Monit can check if the filesystem is mounted. This fix doesn't affect the configuration
+with block/character device.
+
+Fixed: Issue #488: Ping test may fail if the machine performs other ping tests with small payload.
+
+Fixed: Issue #543: Ping test may timeout prematurely on machine with heavy ICMP traffic.
+
+Fixed: Issue #495: Position independent CSRF cookie value.
+
+Fixed: Issue #496: Allow overriding the Accept HTTP header
+
+Fixed: Issue #501: check program may fail when parent service is not monitored every cycle and multiple
+services depend on it.
+
+Fixed: Issue #510: The "set ssl" options defaults had no effect on the Monit HTTPD interface.
+
+Fixed: Issue #515: The compression may fail of response body is empty and zlib version <= 1.2.3.
+
+Fixed: Issue #537: Monit HTTP server could not start if no network interface available
+
+Fixed: Issue #547: If the file service is unmonitored or stopped, the read position in the content test
+is reset to the end of the file if monitoring is enabled again, so the content which is added while the
+service is not monitored will be ignored.
+
+Fixed: Issue #549: Mailserver on port 587 doesn't work with STARTTLS.
+
+Fixed: Issue #560: Monit may miss the filesystem flags change if it was triggered by kernel.
+
+Fixed: Issue #563: Only log test of PID file in debug mode to prevent flooding the log during normal operations.
+
+Fixed: Monit HTTP GUI: Safari may fail to load the page if SSL is enabled.
+
+Fixed: If the connection timed out, Monit reported incorrect error: "Resource temporarily unavailable".
+
+Fixed: Implicit filesystem existence monitoring even if the "does not exist" test is not defined.
+
 
 Version 5.20.0
 

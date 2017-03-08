@@ -258,7 +258,7 @@ void set_header(HttpResponse res, const char *name, const char *value, ...) {
                 for (n = p = res->headers; p; n = p, p = p->next) {
                         if (IS(p->name, name)) {
                                 FREE(p->value);
-                                p->value = Str_dup(value);
+                                p->value = Str_dup(h->value);
                                 destroy_entry(h);
                                 return;
                         }
@@ -288,6 +288,7 @@ void set_status(HttpResponse res, int code) {
  * @param mime Mime content type, e.g. text/html
  */
 void set_content_type(HttpResponse res, const char *mime) {
+        ASSERT(mime);
         set_header(res, "Content-Type", "%s", mime);
 }
 
@@ -442,10 +443,10 @@ static void do_service(Socket_T s) {
         volatile HttpResponse res = create_HttpResponse(s);
         volatile HttpRequest req = create_HttpRequest(s);
         if (res && req) {
-                if (Run.httpd.flags & Httpd_Ssl)
+                if (Run.httpd.socket.net.ssl.flags & SSL_Enabled)
                         set_header(res, "Strict-Transport-Security", "max-age=63072000; includeSubdomains; preload");
                 if (is_authenticated(req, res)) {
-                        set_header(res, "Set-Cookie", "securitytoken=%s; Max-Age=600; HttpOnly; SameSite=strict%s", res->token, Run.httpd.flags & Httpd_Ssl ? "; Secure" : "");
+                        set_header(res, "Set-Cookie", "securitytoken=%s; Max-Age=600; HttpOnly; SameSite=strict%s", res->token, (Run.httpd.socket.net.ssl.flags & SSL_Enabled) ? "; Secure" : "");
                         if (IS(req->method, METHOD_GET))
                                 Impl.doGet(req, res);
                         else if (IS(req->method, METHOD_POST))
@@ -498,7 +499,7 @@ static void send_response(HttpRequest req, HttpResponse res) {
 #endif
                 const void *body = NULL;
                 size_t bodyLength = 0;
-                if (canCompress) {
+                if (canCompress && StringBuffer_length(res->outputbuffer) > 0) {
                         body = StringBuffer_toCompressed(res->outputbuffer, 6, &bodyLength);
                         set_header(res, "Content-Encoding", "gzip");
                 } else {
@@ -720,9 +721,11 @@ static void destroy_entry(void *p) {
 /* ----------------------------------------------------- Checkers/Validators */
 
 
-/**
- * Do Basic Authentication if this auth. style is allowed.
- */
+static boolean_t _isCookieSeparator(int c) {
+        return (c == ' ' || c == '\n' || c == ';' || c == ',');
+}
+
+
 static boolean_t is_authenticated(HttpRequest req, HttpResponse res) {
         if (Run.httpd.credentials) {
                 if (! basic_authenticate(req)) {
@@ -734,28 +737,54 @@ static boolean_t is_authenticated(HttpRequest req, HttpResponse res) {
         }
         if (IS(req->method, METHOD_POST)) {
                 // Check CSRF double-submit cookie (https://www.owasp.org/index.php/Cross-Site_Request_Forgery_(CSRF)_Prevention_Cheat_Sheet#Double_Submit_Cookie)
-                const char *cookie = get_header(req, "Cookie");
                 const char *token = get_parameter(req, "securitytoken");
-                if (! cookie) {
-                        LogError("HttpRequest: access denied -- client [%s]: missing CSRF token cookie\n", NVLSTR(Socket_getRemoteHost(req->S)));
-                        send_error(req, res, SC_FORBIDDEN, "Invalid CSRF Token");
-                        return false;
-                }
                 if (! token) {
                         LogError("HttpRequest: access denied -- client [%s]: missing CSRF token in HTTP parameter\n", NVLSTR(Socket_getRemoteHost(req->S)));
                         send_error(req, res, SC_FORBIDDEN, "Invalid CSRF Token");
                         return false;
                 }
-                if (! Str_startsWith(cookie, "securitytoken=")) {
-                        LogError("HttpRequest: access denied -- client [%s]: no CSRF token in cookie\n", NVLSTR(Socket_getRemoteHost(req->S)));
+                const char *cookie = get_header(req, "Cookie");
+                if (! cookie) {
+                        LogError("HttpRequest: access denied -- client [%s]: missing CSRF token cookie\n", NVLSTR(Socket_getRemoteHost(req->S)));
                         send_error(req, res, SC_FORBIDDEN, "Invalid CSRF Token");
                         return false;
                 }
-                if (Str_compareConstantTime(cookie + 14, token)) {
-                        LogError("HttpRequest: access denied -- client [%s]: CSRF token mismatch\n", NVLSTR(Socket_getRemoteHost(req->S)));
-                        send_error(req, res, SC_FORBIDDEN, "Invalid CSRF Token");
-                        return false;
+                const char *cookieName = "securitytoken=";
+                for (int i = 0, j = 0; cookie[i]; i++) {
+                        if (_isCookieSeparator(cookie[i])) {
+                                // Cookie separator
+                                j = 0;
+                                continue;
+                        }
+                        if (j < 14) {
+                                // Cookie name
+                                if (cookie[i] == cookieName[j]) {
+                                        j++;
+                                        continue;
+                                } else {
+                                        j = 0;
+                                }
+                        } else if (j == 14) {
+                                // Cookie value
+                                char cookieValue[STRLEN] = {};
+                                strncpy(cookieValue, cookie + i, sizeof(cookieValue) - 1);
+                                for (int k = 0; cookieValue[k]; k++) {
+                                        if (_isCookieSeparator(cookieValue[k])) {
+                                                cookieValue[k] = 0;
+                                                break;
+                                        }
+                                }
+                                if (Str_compareConstantTime(cookieValue, token)) {
+                                        LogError("HttpRequest: access denied -- client [%s]: CSRF token mismatch\n", NVLSTR(Socket_getRemoteHost(req->S)));
+                                        send_error(req, res, SC_FORBIDDEN, "Invalid CSRF Token");
+                                        return false;
+                                }
+                                return true;
+                        }
                 }
+                LogError("HttpRequest: access denied -- client [%s]: no CSRF token in cookie\n", NVLSTR(Socket_getRemoteHost(req->S)));
+                send_error(req, res, SC_FORBIDDEN, "Invalid CSRF Token");
+                return false;
         }
         return true;
 }

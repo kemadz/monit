@@ -182,26 +182,11 @@ static unsigned short _checksum(unsigned char *_addr, int count) {
 /* ------------------------------------------------------------------ Public */
 
 
-boolean_t check_host(const char *hostname) {
-        ASSERT(hostname);
-        struct addrinfo hints = {
-#ifdef AI_ADDRCONFIG
-                .ai_flags = AI_ADDRCONFIG
-#endif
-        };
-        struct addrinfo *res;
-        if (getaddrinfo(hostname, NULL, &hints, &res) == 0) {
-                freeaddrinfo(res);
-                return true;
-        }
-        return false;
-}
-
-
 int create_server_socket_tcp(const char *address, int port, Socket_Family family, int backlog, char error[STRLEN]) {
         struct addrinfo *result, hints = {
                 .ai_flags = AI_PASSIVE,
-                .ai_socktype = SOCK_STREAM
+                .ai_socktype = SOCK_STREAM,
+                .ai_protocol = IPPROTO_TCP
         };
         switch (family) {
                 case Socket_Ip:
@@ -219,9 +204,6 @@ int create_server_socket_tcp(const char *address, int port, Socket_Family family
                         snprintf(error, STRLEN, "Invalid socket family %d", family);
                         return -1;
         }
-#ifdef AI_ADDRCONFIG
-        hints.ai_flags |= AI_ADDRCONFIG;
-#endif
         char _port[6];
         snprintf(_port, sizeof(_port), "%d", port);
         int status = getaddrinfo(address, _port, &hints, &result);
@@ -410,50 +392,47 @@ static double _receivePing(const char *hostname, int socket, struct addrinfo *ad
                 int64_t stopped = Time_micro();
                 struct sockaddr_storage in_addr;
                 socklen_t addrlen = sizeof(in_addr);
+                boolean_t in_addrmatch = false, in_typematch = false;
                 do {
                         n = recvfrom(socket, buf, sizeof(buf), 0, (struct sockaddr *)&in_addr, &addrlen);
                 } while (n == -1 && errno == EINTR);
                 if (n < 0) {
-                        LogError("Ping response for %s %d/%d failed -- %s\n", hostname, retry, maxretries, STRERROR);
+                        LogError("Ping response from %s %d/%d failed -- %s\n", hostname, retry, maxretries, STRERROR);
                         return -1.;
-                } else if (n < in_len) {
-                        LogError("Ping response for %s %d/%d failed -- received %ld bytes, expected at least %d bytes\n", hostname, retry, maxretries, (long)n, in_len);
-                        return -1.;
-                }
-                boolean_t in_addrmatch = false, in_typematch = false;
-                /* read from raw socket via recvfrom() provides messages regardless of origin, we have to check the IP and skip responses belonging to other conversations */
-                switch (in_addr.ss_family) {
-                        case AF_INET:
-                                in_addrmatch = memcmp(&((struct sockaddr_in *)&in_addr)->sin_addr, &((struct sockaddr_in *)(addr->ai_addr))->sin_addr, sizeof(struct in_addr)) ? false : true;
-                                in_iphdr4 = (struct ip *)buf;
-                                in_icmp4 = (struct icmp *)(buf + in_iphdr4->ip_hl * 4);
-                                in_typematch = in_icmp4->icmp_type == ICMP_ECHOREPLY ? true : false;
-                                in_id = ntohs(in_icmp4->icmp_id);
-                                in_seq = ntohs(in_icmp4->icmp_seq);
-                                data = (unsigned char *)in_icmp4->icmp_data;
-                                break;
+                } else if (n >= in_len) {
+                        /* read from raw socket via recvfrom() provides messages regardless of origin, we have to check the IP and skip responses belonging to other conversations or different ICMP types (n < in_len) */
+                        switch (in_addr.ss_family) {
+                                case AF_INET:
+                                        in_addrmatch = memcmp(&((struct sockaddr_in *)&in_addr)->sin_addr, &((struct sockaddr_in *)(addr->ai_addr))->sin_addr, sizeof(struct in_addr)) ? false : true;
+                                        in_iphdr4 = (struct ip *)buf;
+                                        in_icmp4 = (struct icmp *)(buf + in_iphdr4->ip_hl * 4);
+                                        in_typematch = in_icmp4->icmp_type == ICMP_ECHOREPLY ? true : false;
+                                        in_id = ntohs(in_icmp4->icmp_id);
+                                        in_seq = ntohs(in_icmp4->icmp_seq);
+                                        data = (unsigned char *)in_icmp4->icmp_data;
+                                        break;
 #ifdef HAVE_IPV6
-                        case AF_INET6:
-                                in_addrmatch = memcmp(&((struct sockaddr_in6 *)&in_addr)->sin6_addr, &((struct sockaddr_in6 *)(addr->ai_addr))->sin6_addr, sizeof(struct in6_addr)) ? false : true;
-                                in_icmp6 = (struct icmp6_hdr *)buf;
-                                in_typematch = in_icmp6->icmp6_type == ICMP6_ECHO_REPLY ? true : false;
-                                in_id = ntohs(in_icmp6->icmp6_id);
-                                in_seq = ntohs(in_icmp6->icmp6_seq);
-                                data = (unsigned char *)(in_icmp6 + 1);
-                                break;
+                                case AF_INET6:
+                                        in_addrmatch = memcmp(&((struct sockaddr_in6 *)&in_addr)->sin6_addr, &((struct sockaddr_in6 *)(addr->ai_addr))->sin6_addr, sizeof(struct in6_addr)) ? false : true;
+                                        in_icmp6 = (struct icmp6_hdr *)buf;
+                                        in_typematch = in_icmp6->icmp6_type == ICMP6_ECHO_REPLY ? true : false;
+                                        in_id = ntohs(in_icmp6->icmp6_id);
+                                        in_seq = ntohs(in_icmp6->icmp6_seq);
+                                        data = (unsigned char *)(in_icmp6 + 1);
+                                        break;
 #endif
-                        default:
-                                LogError("Invalid address family: %d\n", in_addr.ss_family);
-                                return -1.;
+                                default:
+                                        LogError("Invalid address family: %d\n", in_addr.ss_family);
+                                        return -1.;
+                        }
                 }
-                if (in_addr.ss_family != addr->ai_family || ! in_addrmatch || ! in_typematch || in_id != out_id || in_seq > (uint16_t)maxretries) {
+                if (n < in_len || in_addr.ss_family != addr->ai_family || ! in_addrmatch || ! in_typematch || in_id != out_id || in_seq > (uint16_t)maxretries) {
                         // Try to read next packet, but don't exceed the timeout while waiting for our response so we won't loop forever if the socket is flooded with other ICMP packets
                         if (stopped < started) {
                                 // Time jumped
                                 break;
                         } else {
-                                int64_t delta = stopped - started;
-                                read_timeout = timeout - (int)delta;
+                                read_timeout = timeout - (stopped - started) / 1000.;
                         }
                 } else {
                         memcpy(&started, data, sizeof(int64_t));
@@ -472,11 +451,7 @@ double icmp_echo(const char *hostname, Socket_Family family, Outgoing_T *outgoin
         ASSERT(size > 0);
         int rv;
         double response = -1.;
-        struct addrinfo *result, hints = {
-#ifdef AI_ADDRCONFIG
-                .ai_flags = AI_ADDRCONFIG
-#endif
-        };
+        struct addrinfo *result, hints = {};
         switch (family) {
                 case Socket_Ip:
                         hints.ai_family = AF_UNSPEC;

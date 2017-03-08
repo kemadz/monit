@@ -6,7 +6,7 @@ AC_PREREQ([2.53])
 # Note: in  case of beta subversion, use underscore "_" rather then dash "-"
 # since RPM doesn't allow dash in Version
 # Example: 5.0_beta2
-AC_INIT([monit], [5.20.0], [monit-general@nongnu.org])
+AC_INIT([monit], [5.22.0], [monit-general@nongnu.org])
 AC_CONFIG_AUX_DIR(config)
 AC_CONFIG_MACRO_DIR([m4])
 AM_INIT_AUTOMAKE
@@ -16,7 +16,7 @@ AC_CONFIG_COMMANDS([libtool_patch],[test `uname` = "OpenBSD" && perl -p -i -e "s
 AC_CONFIG_COMMANDS([monitrc], [chmod 600 monitrc])
 
 # ------------------------------------------------------------------------
-# Programs 
+# Programs
 # ------------------------------------------------------------------------
 
 AC_PROG_CC
@@ -49,7 +49,7 @@ fi
 
 
 # ------------------------------------------------------------------------
-# Libtool 
+# Libtool
 # ------------------------------------------------------------------------
 
 AC_DISABLE_STATIC
@@ -57,7 +57,7 @@ AC_PROG_LIBTOOL
 
 
 # ------------------------------------------------------------------------
-# Libraries 
+# Libraries
 # ------------------------------------------------------------------------
 
 # Check for libraries
@@ -70,7 +70,7 @@ AC_CHECK_LIB([pthread], [pthread_create], [], [AC_MSG_ERROR([POSIX thread librar
 
 
 # ------------------------------------------------------------------------
-# Header files 
+# Header files
 # ------------------------------------------------------------------------
 
 AC_HEADER_STDC
@@ -87,7 +87,10 @@ AC_CHECK_HEADERS([ \
 	crt_externs.h \
 	ctype.h \
 	crypt.h \
+	CoreFoundation/CoreFoundation.h \
+	devstat.h \
 	dirent.h \
+	DiskArbitration/DiskArbitration.h \
 	errno.h \
 	execinfo.h \
 	fcntl.h \
@@ -95,16 +98,19 @@ AC_CHECK_HEADERS([ \
 	glob.h \
 	grp.h \
 	ifaddrs.h \
+	IOKit/storage/IOBlockStorageDriver.h \
 	kinfo.h \
 	kvm.h \
 	paths.h \
 	kstat.h \
+	libzfs.h \
 	zone.h \
 	sys/protosw.h \
 	libproc.h \
 	limits.h \
 	loadavg.h \
 	locale.h \
+	lvm.h \
         mach/boolean.h \
         mach/host_info.h \
         mach/mach.h \
@@ -137,13 +143,19 @@ AC_CHECK_HEADERS([ \
 	sys/cfgdb.h \
 	sys/dk.h \
 	sys/dkstat.h \
+	sys/disk.h \
 	sys/filio.h \
+	sys/fs/zfs.h \
+	sys/instance.h \
 	sys/ioctl.h \
+	sys/iostat.h \
 	sys/loadavg.h \
 	sys/lock.h \
+	sys/mntent.h \
 	sys/mnttab.h \
 	sys/mutex.h \
 	sys/nlist.h \
+	sys/nvpair.h \
 	sys/param.h \
 	sys/pstat.h \
 	sys/queue.h \
@@ -158,6 +170,7 @@ AC_CHECK_HEADERS([ \
 	sys/types.h \
 	sys/un.h \
 	sys/utsname.h \
+        sys/var.h \
         sys/vmmeter.h \
         sys/vm_usage.h \
 	sys/vfs.h \
@@ -373,7 +386,7 @@ AC_CHECK_MEMBERS([struct tm.tm_gmtoff])
 
 
 # ------------------------------------------------------------------------
-# Functions 
+# Functions
 # ------------------------------------------------------------------------
 
 # Checks for library functions.
@@ -407,14 +420,14 @@ AC_TRY_LINK([
 
 
 # ------------------------------------------------------------------------
-# Compiler 
+# Compiler
 # ------------------------------------------------------------------------
 
 # Compiler characteristics
 AC_C_CONST
 AC_C_BIGENDIAN
 
-# If the compiler is gcc, tune warnings and make the char type unsigned 
+# If the compiler is gcc, tune warnings and make the char type unsigned
 # and enable C99 support
 if test "x$GCC" = "xyes"; then
 	CFLAGS="$CFLAGS -Wall -Wunused -Wno-unused-label -funsigned-char";
@@ -423,7 +436,7 @@ if test "x$GCC" = "xyes"; then
         # does this compiler support -Wno-pointer-sign ?
         svd_CFLAGS="$CFLAGS"
         CFLAGS="-Wno-pointer-sign $CFLAGS"
-        AC_COMPILE_IFELSE([AC_LANG_PROGRAM([], [return 0;])], [], [CFLAGS="$svd_CFLAGS"])        
+        AC_COMPILE_IFELSE([AC_LANG_PROGRAM([], [return 0;])], [], [CFLAGS="$svd_CFLAGS"])
         # does this compiler support -Wno-address ?
         svd_CFLAGS="$CFLAGS"
         CFLAGS="-Wno-address $CFLAGS"
@@ -460,7 +473,7 @@ fi
 
 
 # ------------------------------------------------------------------------
-# Paths 
+# Paths
 # ------------------------------------------------------------------------
 
 # Find the right directory to put the root-mode PID file in
@@ -493,12 +506,14 @@ fi
 
 # Backward compatibility until we get ride of arch settings
 architecture=`uname`
-if test "$architecture" = "SunOS" 
+if test "$architecture" = "SunOS"
 then
    ARCH="SOLARIS"
    CFLAGS="$CFLAGS -D _REENTRANT -D_POSIX_PTHREAD_SEMANTICS -D__EXTENSIONS__ -m64"
    LDFLAGS="$LDFLAGS -m64"
-   test_kstat="true"
+   AC_CHECK_LIB([zfs], [libzfs_init])
+   AC_CHECK_LIB([nvpair], [nvlist_free])
+   AC_CHECK_LIB([kstat], [kstat_open])
    AC_DEFINE([HAVE_CPU_WAIT], [1], [Define to 1 if CPU wait information is available.])
    if test `uname -m` = "i86pc"
    then
@@ -520,7 +535,7 @@ then
             LDFLAGS="$LDFLAGS -xarch=sparc"
       fi
    fi
-elif test "$architecture" = "Linux" 
+elif test "$architecture" = "Linux"
 then
    ARCH="LINUX"
    CFLAGS="$CFLAGS -D _REENTRANT"
@@ -538,34 +553,42 @@ elif test "$architecture" = "OpenBSD"
 then
    ARCH="OPENBSD"
    CFLAGS="$CFLAGS -D _REENTRANT"
-   test_kvm="true"
+   AC_CHECK_LIB([kvm], [kvm_open])
    use_pam=0 # No PAM on OpenBSD (supports BSD Auth API instead of PAM)
 elif test "$architecture" = "FreeBSD"
 then
    ARCH="FREEBSD"
    CFLAGS="$CFLAGS -D _REENTRANT"
-   test_kvm="true"
+   AC_CHECK_LIB([devstat], [devstat_getnumdevs])
+   AC_CHECK_LIB([zfs], [libzfs_init])
+   AC_CHECK_LIB([nvpair], [nvlist_free])
+   AC_CHECK_LIB([kvm], [kvm_open])
 elif test "$architecture" = "GNU/kFreeBSD"
 then
    ARCH="FREEBSD"
    CFLAGS="$CFLAGS -D _REENTRANT"
-   test_kvm="true"
+   AC_CHECK_LIB([devstat], [devstat_getnumdevs])
+   AC_CHECK_LIB([zfs], [libzfs_init])
+   AC_CHECK_LIB([nvpair], [nvlist_free])
+   AC_CHECK_LIB([kvm], [kvm_open])
 elif test "$architecture" = "NetBSD"
 then
    ARCH="NETBSD"
-   CFLAGS="$CFLAGS -D _REENTRANT"
-   test_kvm="true"
+   CFLAGS="$CFLAGS -D _REENTRANT -Wno-char-subscripts"
+   AC_CHECK_LIB([kvm], [kvm_open])
 elif test "$architecture" = "DragonFly"
 then
    ARCH="DRAGONFLY"
    CFLAGS="$CFLAGS -D _REENTRANT"
-   test_kvm="true"
+   AC_CHECK_LIB([kvm], [kvm_open])
+   AC_CHECK_LIB([devstat], [getnumdevs])
 elif test "$architecture" = "Darwin"
 then
    ARCH="DARWIN"
    CFLAGS="$CFLAGS -DREENTRANT -no-cpp-precomp -DNEED_SOCKLEN_T_DEFINED"
-   test_kvm="true"
-   LIBS="$LIBS -framework System -multiply_defined suppress"
+   LDFLAGS="$LDFLAGS -Wl,-search_paths_first"
+   AC_CHECK_LIB([kvm], [kvm_open])
+   LIBS="$LIBS -framework System -framework CoreFoundation -framework DiskArbitration -framework IOKit -multiply_defined suppress"
 elif test "$architecture" = "AIX"
 then
    ARCH="AIX"
@@ -580,34 +603,6 @@ else
 fi
 AC_SUBST(ARCH)
 
-
-# ------------------------------------------------------------------------
-# Resource code
-# ------------------------------------------------------------------------
-
-# Test for kvm libs
-kvm_libs=""
-if test "$test_kvm"; then
-       	AC_CHECK_LIB([kvm],
-        	     [kvm_open],
-        	     [kvm_libs="-lkvm"])
-       	if test "$kvm_libs"
-       	then
-       	        LIBS="$LIBS $kvm_libs"
-       	fi
-fi
-kstat_libs=""
-if test "$test_kstat"; then
-       	AC_CHECK_LIB([kstat],
-        	     [kstat_open],
-        	     [kstat_libs="-lkstat"])
-       	if test "$kstat_libs"
-       	then
-       	        LIBS="$LIBS $kstat_libs"
-       	fi
-fi
-
-
 # ------------------------------------------------------------------------
 # Large files code
 # ------------------------------------------------------------------------
@@ -617,7 +612,7 @@ AC_MSG_CHECKING([for large files support])
 AC_ARG_WITH(largefiles,
     [  --without-largefiles    disable large files support (default: enabled)],
     [
-        dnl Check the withvalue                
+        dnl Check the withvalue
         if test "x$withval" = "xno" ; then
             use_largefiles=0
             AC_MSG_RESULT([disabled])
@@ -692,7 +687,7 @@ AC_MSG_CHECKING([for PAM support])
 AC_ARG_WITH(pam,
     [  --without-pam           disable the use of pam (default: enabled)],
     [
-        dnl Check the withvalue                
+        dnl Check the withvalue
         if test "x$withval" = "xno" ; then
             use_pam=0
             AC_MSG_RESULT([disabled])
@@ -730,7 +725,7 @@ checksslincldir() { :
     return 1
 }
 
-# Check for ssl libraries 
+# Check for ssl libraries
 checkssllibdirdynamic() { :
     CRYPTOLIB=`ls -1 $1/libcrypto.so* $1/libcrypto.dylib* 2>/dev/null | wc -l`
     SSLLIB=`ls -1 $1/libssl.so* $1/libssl.dylib* 2>/dev/null | wc -l`
@@ -787,7 +782,7 @@ then
     AC_ARG_WITH(ssl,
         [  --without-ssl           disable the use of ssl (default: enabled)],
         [
-            dnl Check the withvalue                
+            dnl Check the withvalue
             if test "x$withval" = "xno" ; then
                 use_ssl=0
                 AC_MSG_RESULT([disabled])
@@ -828,11 +823,11 @@ then
                 checksslincldir "$withval"
             ],
             [
-                if test -z "$sslincldir"; then	
+                if test -z "$sslincldir"; then
                     dnl Search default locations of SSL includes
                     for maindir in /usr /usr/local /usr/lib /usr/pkg /var /opt /usr/sfw /opt/csw /opt/freeware; do
                         for dir in "$maindir/include"\
-                                   "$maindir/include/openssl"\ 
+                                   "$maindir/include/openssl"\
                                    "$maindir/include/ssl"\
                                    "$maindir/ssl/include"; do
                             checksslincldir $dir && break 2
@@ -860,7 +855,7 @@ then
                 checkssllibdirdynamic "$withval"
             ],
             [
-                if test -z "$ssllibdir"; then	
+                if test -z "$ssllibdir"; then
                     dnl Search default locations of SSL libraries
                     for maindir in "" \
                                    /usr \
@@ -897,7 +892,7 @@ then
         if test -z "$ssllibdir"; then
             AC_MSG_RESULT([Not found])
             dnl Let the compiler find the library using default paths
-            AC_CHECK_LIB([ssl], [SSL_library_init], [], [AC_MSG_ERROR([Could not find SSL library, please use --with-ssl-lib-dir option or disabled the SSL support using --without-ssl])])
+            AC_CHECK_LIB([ssl], [SSL_new], [], [AC_MSG_ERROR([Could not find SSL library, please use --with-ssl-lib-dir option or disabled the SSL support using --without-ssl])])
             AC_CHECK_LIB([crypto],[CRYPTO_new_ex_data], [], [AC_MSG_ERROR([Could not find SSL library, please use --with-ssl-lib-dir option or disabled the SSL support using --without-ssl])])
         else
             AC_MSG_RESULT([$ssllibdir])
@@ -1067,7 +1062,7 @@ cat <<EOT
 | AFFERO GENERAL PUBLIC LICENSE version 3, available in this |
 | distribution in the file COPYING.                          |
 |                                                            |
-| By continuing this installation process, you are bound by  | 
+| By continuing this installation process, you are bound by  |
 | the terms of this license agreement. If you do not agree   |
 | with the terms of this license, you must abort the         |
 | installation process at this point.                        |

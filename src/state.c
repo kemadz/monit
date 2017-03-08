@@ -81,8 +81,7 @@
  *        Allows to skip the content match test for the content which was checked
  *        already to suppress duplicate events.
  *
- *    5.) size, checksum, timestamp, permissions, link speed, filesystem flags
- *        for the change observation test
+ *    5.) size, checksum, timestamp, permissions, link speed for the change observation test
  *
  * Data is stored in binary form in the statefile using the following format:
  *    <MAGIC><VERSION>{<SERVICE_STATE>}+
@@ -139,7 +138,7 @@ typedef struct mystate3 {
 
                 struct {
                         int mode;
-                        int flags;
+                        int flags; // Obsolete since Monit 5.21.0
                 } filesystem;
 
                 struct {
@@ -213,8 +212,8 @@ static void _updateMonitor(Service_T S, Monitor_State monitor) {
 
 
 static void _updateFilePosition(Service_T S, unsigned long long inode, unsigned long long readpos) {
-        S->inf->priv.file.inode = (ino_t)inode;
-        S->inf->priv.file.readpos = (off_t)readpos;
+        S->inf.file->inode = (ino_t)inode;
+        S->inf.file->readpos = (off_t)readpos;
 }
 
 
@@ -247,14 +246,8 @@ static void _updateSize(Service_T S, unsigned long long size) {
 static void _updateChecksum(Service_T S, char *hash) {
         if (S->checksum && S->checksum->test_changes) {
                 S->checksum->initialized = false;
-                strncpy(S->checksum->hash, hash, sizeof(S->checksum->hash));
+                strncpy(S->checksum->hash, hash, sizeof(S->checksum->hash) - 1);
         }
-}
-
-
-static void _updateFilesystemFlags(Service_T S, int flags) {
-        if (S->fsflaglist)
-                S->inf->priv.filesystem.flags = flags;
 }
 
 
@@ -298,7 +291,6 @@ static void _restoreV3() {
 
                                 case Service_Filesystem:
                                         _updatePermission(service, state.priv.filesystem.mode);
-                                        _updateFilesystemFlags(service, state.priv.filesystem.flags);
                                         break;
 
                                 case Service_Net:
@@ -344,7 +336,6 @@ static void _restoreV2() {
 
                                 case Service_Filesystem:
                                         _updatePermission(service, state.priv.filesystem.mode);
-                                        _updateFilesystemFlags(service, state.priv.filesystem.flags);
                                         break;
 
                                 case Service_Net:
@@ -443,24 +434,24 @@ void State_save() {
                         state.ncycle = service->ncycle;
                         switch (service->type) {
                                 case Service_Directory:
-                                        state.priv.directory.timestamp = (unsigned long long)service->inf->priv.directory.timestamp;
+                                        state.priv.directory.timestamp = (unsigned long long)service->inf.directory->timestamp;
                                         if (service->perm)
                                                 state.priv.directory.mode = service->perm->perm;
                                         break;
 
                                 case Service_Fifo:
-                                        state.priv.fifo.timestamp = (unsigned long long)service->inf->priv.fifo.timestamp;
+                                        state.priv.fifo.timestamp = (unsigned long long)service->inf.fifo->timestamp;
                                         if (service->perm)
                                                 state.priv.fifo.mode = service->perm->perm;
                                         break;
 
                                 case Service_File:
-                                        state.priv.file.inode = service->inf->priv.file.inode;
-                                        state.priv.file.readpos = service->inf->priv.file.readpos;
-                                        state.priv.file.size = (unsigned long long)service->inf->priv.file.size;
-                                        state.priv.file.timestamp = (unsigned long long)service->inf->priv.file.timestamp;
+                                        state.priv.file.inode = service->inf.file->inode;
+                                        state.priv.file.readpos = service->inf.file->readpos;
+                                        state.priv.file.size = (unsigned long long)service->inf.file->size;
+                                        state.priv.file.timestamp = (unsigned long long)service->inf.file->timestamp;
                                         if (service->checksum)
-                                                strncpy(state.priv.file.hash, service->inf->priv.file.cs_sum, sizeof(state.priv.file.hash));
+                                                strncpy(state.priv.file.hash, service->inf.file->cs_sum, sizeof(state.priv.file.hash) - 1);
                                         if (service->perm)
                                                 state.priv.file.mode = service->perm->perm;
                                         break;
@@ -468,7 +459,6 @@ void State_save() {
                                 case Service_Filesystem:
                                         if (service->perm)
                                                 state.priv.filesystem.mode = service->perm->perm;
-                                        state.priv.filesystem.flags = service->inf->priv.filesystem.flags;
                                         break;
 
                                 case Service_Net:

@@ -73,7 +73,7 @@ static boolean_t _send(Socket_T socket, Mmonit_T C, StringBuffer_T sb) {
         char *auth = Util_getBasicAuthHeader(C->url->user, C->url->password);
         const void *body = NULL;
         size_t bodyLength = 0;
-        if (C->compress == MmonitCompress_Yes) {
+        if (C->compress == MmonitCompress_Yes && StringBuffer_length(sb) > 0) {
                 body = StringBuffer_toCompressed(sb, 6, &bodyLength);
         } else {
                 body = StringBuffer_toString(sb);
@@ -156,7 +156,7 @@ Handler_Type MMonit_send(Event_T E) {
                 return Handler_Succeeded;
         StringBuffer_T sb = StringBuffer_create(256);
         for (Mmonit_T C = Run.mmonits; C; C = C->next) {
-                Socket_T  socket = Socket_create(C->url->hostname, C->url->port, Socket_Tcp, Socket_Ip, C->ssl, C->timeout);
+                Socket_T  socket = Socket_create(C->url->hostname, C->url->port, Socket_Tcp, Socket_Ip, &(C->ssl), C->timeout);
                 if (! socket) {
                         LogError("M/Monit: cannot open a connection to %s\n", C->url->url);
                         goto error;

@@ -87,6 +87,23 @@
  */
 
 
+/* ------------------------------------------------------------- Definitions */
+
+
+static struct {
+        int hasIOStatistics; // True if /proc/<PID>/io is present
+} _statistics = {};
+
+
+/* --------------------------------------- Static constructor and destructor */
+
+
+static void __attribute__ ((constructor)) _constructor() {
+        struct stat sb;
+        _statistics.hasIOStatistics = stat("/proc/self/io", &sb) == 0 ? true : false;
+}
+
+
 /* ----------------------------------------------------------------- Private */
 
 
@@ -129,26 +146,26 @@ boolean_t init_process_info_sysdep(void) {
                 return false;
         }
 
-        if ((systeminfo.cpus = sysconf(_SC_NPROCESSORS_CONF)) < 0) {
+        if ((systeminfo.cpu.count = sysconf(_SC_NPROCESSORS_CONF)) < 0) {
                 DEBUG("system statistic error -- cannot get cpu count: %s\n", STRERROR);
                 return false;
-        } else if (systeminfo.cpus == 0) {
+        } else if (systeminfo.cpu.count == 0) {
                 DEBUG("system reports cpu count 0, setting dummy cpu count 1\n");
-                systeminfo.cpus = 1;
+                systeminfo.cpu.count = 1;
         }
 
         FILE *f = fopen("/proc/meminfo", "r");
         if (f) {
                 char line[STRLEN];
-                systeminfo.mem_max = 0L;
+                systeminfo.memory.size = 0L;
                 while (fgets(line, sizeof(line), f)) {
-                        if (sscanf(line, "MemTotal: %"PRIu64, &systeminfo.mem_max) == 1) {
-                                systeminfo.mem_max *= 1024;
+                        if (sscanf(line, "MemTotal: %"PRIu64, &systeminfo.memory.size) == 1) {
+                                systeminfo.memory.size *= 1024;
                                 break;
                         }
                 }
                 fclose(f);
-                if (! systeminfo.mem_max)
+                if (! systeminfo.memory.size)
                         DEBUG("system statistic error -- cannot get real memory amount\n");
         } else {
                 DEBUG("system statistic error -- cannot open /proc/meminfo\n");
@@ -200,6 +217,8 @@ int initprocesstree_sysdep(ProcessTree_T **reference, ProcessEngine_Flags pflags
         unsigned long       stat_item_utime = 0;
         unsigned long       stat_item_stime = 0;
         unsigned long long  stat_item_starttime = 0ULL;
+        uint64_t            stat_read_bytes = 0ULL;
+        uint64_t            stat_write_bytes = 0ULL;
 
         ASSERT(reference);
 
@@ -270,6 +289,30 @@ int initprocesstree_sysdep(ProcessTree_T **reference, ProcessEngine_Flags pflags
                         continue;
                 }
 
+                /********** /proc/PID/io **********/
+                if (_statistics.hasIOStatistics) {
+                        if (file_readProc(buf, sizeof(buf), "io", stat_pid, NULL)) {
+                                if (! (tmp = strstr(buf, "read_bytes:"))) {
+                                        DEBUG("system statistic error -- cannot find process read_bytes\n");
+                                        continue;
+                                }
+                                if (sscanf(tmp + 11, "\t%"PRIu64, &stat_read_bytes) != 1) {
+                                        DEBUG("system statistic error -- cannot get process read bytes\n");
+                                        continue;
+                                }
+                                if (! (tmp = strstr(buf, "write_bytes:"))) {
+                                        DEBUG("system statistic error -- cannot find process write_bytes\n");
+                                        continue;
+                                }
+                                if (sscanf(tmp + 12, "\t%"PRIu64, &stat_write_bytes) != 1) {
+                                        DEBUG("system statistic error -- cannot get process write bytes\n");
+                                        continue;
+                                }
+                        } else {
+                                DEBUG("system statistic error -- cannot read /proc/%d/io\n", stat_pid);
+                        }
+                }
+
                 /********** /proc/PID/cmdline **********/
                 if (pflags & ProcessEngine_CollectCommandLine) {
                         if (! file_readProc(buf, sizeof(buf), "cmdline", stat_pid, &bytes)) {
@@ -292,6 +335,8 @@ int initprocesstree_sysdep(ProcessTree_T **reference, ProcessEngine_Flags pflags
                 pt[i].uptime = starttime > 0 ? (systeminfo.time / 10. - (starttime + (time_t)(stat_item_starttime / hz))) : 0;
                 pt[i].cpu.time = (double)(stat_item_utime + stat_item_stime) / hz * 10.; // jiffies -> seconds = 1/hz
                 pt[i].memory.usage = (uint64_t)stat_item_rss * (uint64_t)page_size;
+                pt[i].read.bytes = stat_read_bytes;
+                pt[i].write.bytes = stat_write_bytes;
                 pt[i].zombie = stat_item_state == 'Z' ? true : false;
         }
 
@@ -358,7 +403,7 @@ boolean_t used_system_memory_sysdep(SystemInfo_T *si) {
                 DEBUG("system statistic error -- cannot get real memory cache amount\n");
         if (! (ptr = strstr(buf, "SReclaimable:")) || sscanf(ptr + 13, "%ld", &slabreclaimable) != 1)
                 DEBUG("system statistic error -- cannot get slab reclaimable memory amount\n");
-        si->total_mem = systeminfo.mem_max - (uint64_t)(mem_free + buffers + cached + slabreclaimable) * 1024;
+        si->memory.usage.bytes = systeminfo.memory.size - (uint64_t)(mem_free + buffers + cached + slabreclaimable) * 1024;
 
         /* Swap */
         if (! (ptr = strstr(buf, "SwapTotal:")) || sscanf(ptr + 10, "%ld", &swap_total) != 1) {
@@ -369,14 +414,14 @@ boolean_t used_system_memory_sysdep(SystemInfo_T *si) {
                 LogError("system statistic error -- cannot get swap free amount\n");
                 goto error;
         }
-        si->swap_max = (uint64_t)swap_total * 1024;
-        si->total_swap = (uint64_t)(swap_total - swap_free) * 1024;
+        si->swap.size = (uint64_t)swap_total * 1024;
+        si->swap.usage.bytes = (uint64_t)(swap_total - swap_free) * 1024;
 
         return true;
 
 error:
-        si->total_mem = 0ULL;
-        si->swap_max = 0ULL;
+        si->memory.usage.bytes = 0ULL;
+        si->swap.size = 0ULL;
         return false;
 }
 
@@ -424,15 +469,15 @@ boolean_t used_system_cpu_sysdep(SystemInfo_T *si) {
         cpu_user  = cpu_user + cpu_nice;
 
         if (old_cpu_total == 0) {
-                si->total_cpu_user_percent = -1.;
-                si->total_cpu_syst_percent = -1.;
-                si->total_cpu_wait_percent = -1.;
+                si->cpu.usage.user = -1.;
+                si->cpu.usage.system = -1.;
+                si->cpu.usage.wait = -1.;
         } else {
                 unsigned long long delta = cpu_total - old_cpu_total;
 
-                si->total_cpu_user_percent = 100. * (double)(cpu_user - old_cpu_user) / delta;
-                si->total_cpu_syst_percent = 100. * (double)(cpu_syst - old_cpu_syst) / delta;
-                si->total_cpu_wait_percent = 100. * (double)(cpu_wait - old_cpu_wait) / delta;
+                si->cpu.usage.user = 100. * (double)(cpu_user - old_cpu_user) / delta;
+                si->cpu.usage.system = 100. * (double)(cpu_syst - old_cpu_syst) / delta;
+                si->cpu.usage.wait = 100. * (double)(cpu_wait - old_cpu_wait) / delta;
         }
 
         old_cpu_user  = cpu_user;
@@ -442,9 +487,9 @@ boolean_t used_system_cpu_sysdep(SystemInfo_T *si) {
         return true;
 
 error:
-        si->total_cpu_user_percent = 0.;
-        si->total_cpu_syst_percent = 0.;
-        si->total_cpu_wait_percent = 0.;
+        si->cpu.usage.user = 0.;
+        si->cpu.usage.system = 0.;
+        si->cpu.usage.wait = 0.;
         return false;
 }
 

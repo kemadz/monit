@@ -52,12 +52,13 @@ typedef struct SslOptions_T {
         short allowSelfSigned;     /**< true if self signed certificate is allowed */
         short version;                  /**< The SSL version to use for connection */
         short checksumType;                                     /**< Checksum type */
-        int minimumValidDays;         /**< Minimum valid days left for certificate */
-        char *checksum;      /**< The expected md5 sum of the server's certificate */
+        char *checksum;     /**< The expected checksum of the server's certificate */
+        char *pemfile;                            /**< Optional server certificate */
         char *clientpemfile;                      /**< Optional client certificate */
+        char *ciphers;                               /**< Allowed SSL ciphers list */
         char *CACertificateFile;             /**< Path to CA certificates PEM file */
         char *CACertificatePath;            /**< Path to CA certificates directory */
-} SslOptions_T;
+} *SslOptions_T;
 
 
 #define T Ssl_T
@@ -65,9 +66,9 @@ typedef struct T *T;
 
 
 /*
- * The list of all ciphers suites in order of strength except those containing anonymous DH ciphers, low bit-size ciphers, export-crippled ciphersm the MD5 hash algorithm and weak DES and RC4 ciphers.
+ * The list of all ciphers suites in order of strength except those containing anonymous DH ciphers, low bit-size ciphers, export-crippled ciphersm the MD5 hash algorithm and weak DES, RC4 and 3DES ciphers.
  */
-#define CIPHER_LIST "ALL:!DES:!RC4:!aNULL:!LOW:!EXP:!IDEA:!MD5:@STRENGTH"
+#define CIPHER_LIST "ALL:!DES:!RC4:!aNULL:!LOW:!EXP:!IDEA:!MD5:!3DES:@STRENGTH"
 
 
 /**
@@ -97,13 +98,10 @@ void Ssl_setFipsMode(boolean_t enabled);
 
 /**
  * Create a new SSL connection object
- * @param version An SSL version to use
- * @param CACertificateFile Optional path to CA certificates PEM encoded file
- * @param CACertificatePath Optional path to CA certificates directory
- * @param clientpem Optional path to client certificate PEM file
+ * @param options SSL options
  * @return a new SSL connection object or NULL if failed
  */
-T Ssl_new(Ssl_Version version, const char *CACertificateFile, const char *CACertificatePath, const char *clientpem);
+T Ssl_new(SslOptions_T options);
 
 
 /**
@@ -155,36 +153,12 @@ int Ssl_read(T C, void *b, int size, int timeout);
 
 
 /**
- * Set whether SSL server certificates should be verified.
+ * Get days the certificate remains valid.
  * @param C An SSL connection object
- * @param verify Boolean flag (true = verify, false = don't verify)
+ * @return Number of valid days
+ * @exception IOException if failed
  */
-void Ssl_setVerifyCertificates(T C, boolean_t verify);
-
-
-/**
- * Set whether self-signed certificates should be allowed (rejected by default)
- * @param C An SSL connection object
- * @param allow Boolean flag (true = allow, false = reject)
- */
-void Ssl_setAllowSelfSignedCertificates(T C, boolean_t allow);
-
-
-/**
- * Set minimum days the certificate must be valid.
- * @param C An SSL connection object
- * @param days Minimum number of valid days
- */
-void Ssl_setCertificateMinimumValidDays(T C, int days);
-
-
-/**
- * Check a peer certificate with a given checksum
- * @param C An SSL connection object
- * @param checksum Expected checksum in string format
- * @param type Checksum type
- */
-void Ssl_setCertificateChecksum(T C, short type, const char *checksum);
+int Ssl_getCertificateValidDays(T C);
 
 
 /**
@@ -194,7 +168,7 @@ void Ssl_setCertificateChecksum(T C, short type, const char *checksum);
  * @param size The size of the buffer b
  * @return Buffer with string represantation of SSL options
  */
-char *Ssl_printOptions(SslOptions_T *options, char *b, int size);
+char *Ssl_printOptions(SslOptions_T options, char *b, int size);
 
 
 #undef T
