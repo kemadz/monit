@@ -342,6 +342,16 @@ static int _checkChecksum(T C, X509_STORE_CTX *ctx, X509 *certificate) {
 }
 
 
+static int _saveAndCheckServerCertificates(T C, X509_STORE_CTX *ctx) {
+        if ((C->certificate = X509_STORE_CTX_get_current_cert(ctx))) {
+                return _checkChecksum(C, ctx, C->certificate);
+        }
+        X509_STORE_CTX_set_error(ctx, X509_V_ERR_APPLICATION_VERIFICATION);
+        snprintf(C->error, sizeof(C->error), "cannot get SSL server certificate");
+        return 0;
+}
+
+
 static int _verifyServerCertificates(int preverify_ok, X509_STORE_CTX *ctx) {
         T C = SSL_get_app_data(X509_STORE_CTX_get_ex_data(ctx, SSL_get_ex_data_X509_STORE_CTX_idx()));
         if (! C) {
@@ -355,7 +365,7 @@ static int _verifyServerCertificates(int preverify_ok, X509_STORE_CTX *ctx) {
                         case X509_V_ERR_DEPTH_ZERO_SELF_SIGNED_CERT:
                                 if (_optionsAllowSelfSigned(C->options->allowSelfSigned)) {
                                         X509_STORE_CTX_set_error(ctx, X509_V_OK);
-                                        return 1;
+                                        return _saveAndCheckServerCertificates(C, ctx);
                                 }
                                 snprintf(C->error, sizeof(C->error), "self signed certificate is not allowed, please use a trusted certificate or use the 'selfsigned: allow' SSL option");
                                 break;
@@ -363,13 +373,7 @@ static int _verifyServerCertificates(int preverify_ok, X509_STORE_CTX *ctx) {
                                 break;
                 }
         } else {
-                if ((C->certificate = X509_STORE_CTX_get_current_cert(ctx))) {
-                        return _checkChecksum(C, ctx, C->certificate);
-                } else {
-                        X509_STORE_CTX_set_error(ctx, X509_V_ERR_APPLICATION_VERIFICATION);
-                        snprintf(C->error, sizeof(C->error), "cannot get SSL server certificate");
-                        return 0;
-                }
+                return _saveAndCheckServerCertificates(C, ctx);
         }
         return 0;
 }
@@ -403,7 +407,7 @@ static int _verifyClientCertificates(int preverify_ok, X509_STORE_CTX *ctx) {
         if (X509_STORE_CTX_get_error_depth(ctx) == 0 && X509_STORE_get_by_subject(ctx, X509_LU_X509, X509_get_subject_name(X509_STORE_CTX_get_current_cert(ctx)), &found_cert) != 1) {
 #else
         X509_OBJECT *found_cert = X509_OBJECT_new();
-        if (X509_STORE_CTX_get_error_depth(ctx) == 0 && X509_STORE_get_by_subject(ctx, X509_LU_X509, X509_get_subject_name(X509_STORE_CTX_get_current_cert(ctx)), found_cert) != 1) {
+        if (X509_STORE_CTX_get_error_depth(ctx) == 0 && X509_STORE_CTX_get_by_subject(ctx, X509_LU_X509, X509_get_subject_name(X509_STORE_CTX_get_current_cert(ctx)), found_cert) != 1) {
 #endif
                 LogError("SSL: no matching certificate found -- %s\n", SSLERROR);
                 X509_STORE_CTX_set_error(ctx, X509_V_ERR_CERT_REJECTED);
@@ -726,7 +730,11 @@ int Ssl_getCertificateValidDays(T C) {
                 int deltadays = 0;
 #ifdef HAVE_ASN1_TIME_DIFF
                 int deltaseconds;
+#if (OPENSSL_VERSION_NUMBER < 0x10100000L) || defined(LIBRESSL_VERSION_NUMBER)
                 if (! ASN1_TIME_diff(&deltadays, &deltaseconds, NULL, X509_get_notAfter(C->certificate))) {
+#else
+                if (! ASN1_TIME_diff(&deltadays, &deltaseconds, NULL, X509_get0_notAfter(C->certificate))) {
+#endif
                         THROW(IOException, "invalid time format in certificate's notAfter field");
                 }
 #else
@@ -748,9 +756,9 @@ int Ssl_getCertificateValidDays(T C) {
                 }
                 END_TRY;
 #endif
-                return deltadays;
+                return deltadays > 0 ? deltadays : 0;
         }
-        return 0;
+        return -1;
 }
 
 

@@ -438,7 +438,7 @@ int main(void) {
         }
         printf("=> Test25: OK\n\n");
 
-        printf("=> Test25: Str_milliToTime\n");
+        printf("=> Test26: Str_milliToTime\n");
         {
                 char str[13];
                 Str_milliToTime(0, str);
@@ -456,9 +456,9 @@ int main(void) {
                 Str_milliToTime(90000, str);
                 assert(Str_isEqual(str, "1.500 m"));
                 Str_milliToTime(3600000, str);
-                assert(Str_isEqual(str, "60 m"));
+                assert(Str_isEqual(str, "1 h"));
         }
-        printf("=> Test25: OK\n\n");
+        printf("=> Test26: OK\n\n");
 
         printf("============> Str Tests: OK\n\n");
         return 0;

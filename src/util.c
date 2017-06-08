@@ -1137,12 +1137,12 @@ void Util_printService(Service_T s) {
 
         for (Timestamp_T o = s->timestamplist; o; o = o->next) {
                 StringBuffer_clear(buf);
-                printf(" %-20s = %s\n", "Timestamp",
+                printf(" %-20s = %s\n", timestampnames[o->type],
                        o->test_changes
                        ?
                        StringBuffer_toString(Util_printRule(buf, o->action, "if changed"))
                        :
-                       StringBuffer_toString(Util_printRule(buf, o->action, "if %s %d second(s)", operatornames[o->operator], o->time))
+                       StringBuffer_toString(Util_printRule(buf, o->action, "if %s %s", operatornames[o->operator], Str_milliToTime(o->time * 1000., (char[23]){})))
                        );
         }
 
@@ -1607,14 +1607,9 @@ void Util_redirectStdFds() {
 
 
 void Util_closeFds() {
-        int i;
-#ifdef HAVE_UNISTD_H
-        int max_descriptors = getdtablesize();
-#else
-        int max_descriptors = 1024;
-#endif
-        for (i = 3; i < max_descriptors; i++)
+        for (int i = 3, descriptors = System_getDescriptorsGuarded(2<<15); i < descriptors; i++) {
                 close(i);
+        }
         errno = 0;
 }
 
@@ -1738,20 +1733,26 @@ void Util_resetInfo(Service_T s) {
                         s->inf.file->mode = -1;
                         s->inf.file->uid = -1;
                         s->inf.file->gid = -1;
-                        s->inf.file->timestamp = 0;
+                        s->inf.file->timestamp.access = 0;
+                        s->inf.file->timestamp.change = 0;
+                        s->inf.file->timestamp.modify = 0;
                         *s->inf.file->cs_sum = 0;
                         break;
                 case Service_Directory:
                         s->inf.directory->mode = -1;
                         s->inf.directory->uid = -1;
                         s->inf.directory->gid = -1;
-                        s->inf.directory->timestamp = 0;
+                        s->inf.directory->timestamp.access = 0;
+                        s->inf.directory->timestamp.change = 0;
+                        s->inf.directory->timestamp.modify = 0;
                         break;
                 case Service_Fifo:
                         s->inf.fifo->mode = -1;
                         s->inf.fifo->uid = -1;
                         s->inf.fifo->gid = -1;
-                        s->inf.fifo->timestamp = 0;
+                        s->inf.fifo->timestamp.access = 0;
+                        s->inf.fifo->timestamp.change = 0;
+                        s->inf.fifo->timestamp.modify = 0;
                         break;
                 case Service_Process:
                         s->inf.process->_pid = -1;

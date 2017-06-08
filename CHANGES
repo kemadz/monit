@@ -1,13 +1,111 @@
-                     CHANGES version 5.22.0
+                     CHANGES version 5.23.0
 
            This file summarizes changes made since 5.0
 
+Version 5.23.0
+
+New: Spamassassin protocol test added. Example:
+    check process spamd with pidfile /var/run/spamassassin.pid
+       start program = "/etc/init.d/spamassassin start"
+       stop  program = "/etc/init.d/spamassassin stop"
+       if failed port 783 protocol spamassassin then alert
+
+New: Fail2ban protocol test added. Example:
+    check process fail2ban with pidfile /var/run/fail2ban/fail2ban.pid
+       start program = "/etc/init.d/fail2ban start"
+       stop program = "/etc/init.d/fail2ban stop"
+       if failed unixsocket /var/run/fail2ban/fail2ban.sock protocol fail2ban then alert
+
+New: Issue #594: Systemd template for Monit: Added documentation reference.
+
+Fixed: Issue #601: The Monit web interface highlighted non-SSL TCP port tests
+with red, even though there was no error.
+
+Fixed: Issue #602: Linux: When checking root filesystem via a mountpoint "/",
+Monit may alert that the filesystem flags changed if the system has "rootfs"
+overlay mount.
+
+Fixed: Issue #603: Support existence/nonexistence test for filesystem check.
+
+Fixed: Issue #614: Monit may crash if "total memory" test is used in "check system"
+context. The "total memory" test is for process checks only (includes children
+memory total) and will produce syntax error if used in system check now.
+
+Fixed: Issue #616: If no filedescriptors limit is set when Monit starts, Monit may 
+freeze for a long time during startup and when executing start/stop methods or
+program checks.
+
+Fixed: The "check program" may timeout if the executed program produces lot of output.
+Thanks to Artur Molchanov for patch.
+
+Fixed: *BSD: If device parsing for UFS filesystem failed, skip the I/O monitoring
+only and continue monitoring the space/inode usage.  Thanks to Daniel Bilik for patch.
+
+Fixed: Keep the action-pending status until the action is finished.
+
+
 Version 5.22.0
+
+New: Linux: Added support for monitoring ZFS disk activity.
+
+New: Issue #500: Added the "method" option for http protocol test, to allow overriding
+the HTTP method used for the test (by default HEAD unless content or checksum test is set,
+in which case GET is used automatically). Only HEAD and GET methods are supported currently.
+Example:
+    if failed port 443 protocol https method GET then alert
+
+New: Issue #582: File, Directory, Fifo checks: Added support for explicit access, change
+and modification time tests. If the type is not specified, the original timestamp test is
+performed, which checks the latest of change and modification timestamps. It is also
+possible to use "newer" and "later" operators in the test now. Syntax:
+    IF <ACCESS TIME | ATIME | MODIFICATION TIME | MTIME | CHANGE TIME | CTIME | TIME[STAMP]> <operator> <value> [unit] THEN <action>
+Example for sending alert if the file was not updated within last hour:
+    if modification time is older than 1 hour then alert
 
 New: Renamed the "set logfile <path|syslog>" statement to "set log <path|syslog>".
 The "logfile" form is deprecated, but kept for backward compatibility.
 
-Fixed: Issue #568: cross-compilation
+Fixed: Linux: If the filesystem is not found in /proc/diskstat, Monit may leak filedescriptors.
+
+Fixed: Issue #487: Solaris on SPARC: Monit doesn't trigger an event if protocol test failed.
+
+Fixed: Issue #566: Systemd template for Monit: Added StandardOutput=null option to prevent
+systemd to duplicate Monit log output.
+
+Fixed: Issue #568: fix cross-compilation
+
+Fixed: Issue #569: fix configure --without-zlib
+
+Fixed: Issue #570: if the connection test requires STARTTLS, the certificate valid
+days test was broken.
+
+Fixed: Issue #584: fix compilation for MacOSX 10.6.x - 10.9.x.
+
+Fixed: Issue #586: HTTP protocol test: Support URL string as custom request to allow monitoring
+HTTP proxy. Example for testing Squid:
+  if failed port 3128 protocol http request "cache_object://localhost/utilization" then alert
+
+Fixed: Issue #588: If the connection or ping test repetition is set, log partial failures
+with warning priority instead of error.
+
+Fixed: Issue #593: Linux: Support rootfs ramdisk.
+
+Fixed: Support compilation with OpenSSL 1.1.0 that was compiled with no-deprecated option.
+
+Fixed: The connection test retry option was broken and performed always one test with no retry on
+error.
+
+Fixed: HTTP protocol test: The "Connection: close" HTTP header was always included even if
+it was part of the custom HTTP headers list.
+
+Fixed: Linux: Subtract ZFS ARC size from the system memory usage.
+
+Fixed: If the SSL test connection failed and certificate validity test was active,
+monit returned confusing certificate validity error. The test is now skipped in such
+case as it can be performed only if the certificate can be read.
+
+Fixed: The certificate validity test and checksum test didn't work for self-signed
+certificates if such certificates were allowed.
 
 
 Version 5.21.0

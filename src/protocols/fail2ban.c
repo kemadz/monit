@@ -39,19 +39,36 @@
  *
  *  @file
  */
-void check_clamav(Socket_T socket) {
+void check_fail2ban(Socket_T socket) {
         ASSERT(socket);
 
+        const unsigned char ping[] = {
+                0x80, 0x04, 0x95, 0x0b, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x5d, 0x94, 0x8c, 0x04, 0x70,
+                0x69, 0x6e, 0x67, 0x94, 0x61, 0x2e, 0x3c, 0x46,
+                0x32, 0x42, 0x5f, 0x45, 0x4e, 0x44, 0x5f, 0x43,
+                0x4f, 0x4d, 0x4d, 0x41, 0x4e, 0x44, 0x3e, 0x00
+        };
+        const unsigned char pong[] = {
+                0x80, 0x04, 0x95, 0x0c, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x4b, 0x00, 0x8c, 0x04, 0x70,
+                0x6f, 0x6e, 0x67, 0x94, 0x86, 0x94, 0x2e, 0x3c,
+                0x46, 0x32, 0x42, 0x5f, 0x45, 0x4e, 0x44, 0x5f,
+                0x43, 0x4f, 0x4d, 0x4d, 0x41, 0x4e, 0x44, 0x3e
+        };
+
         // Send PING
-        if (Socket_print(socket, "PING\r\n") < 0)
-                THROW(IOException, "CLAMAV: PING command error -- %s", STRERROR);
+        if (Socket_write(socket, (void *)ping, sizeof(ping)) < 0) {
+                THROW(IOException, "FAIL2BAN: PING command error -- %s", STRERROR);
+        }
 
         // Read and check PONG
-        char buf[STRLEN];
-        if (! Socket_readLine(socket, buf, sizeof(buf)))
-                THROW(IOException, "CLAMAV: PONG read error -- %s", STRERROR);
-        Str_chomp(buf);
-        if (strncasecmp(buf, "PONG", 4) != 0)
-                THROW(ProtocolException, "CLAMAV: invalid PONG response -- %s", buf);
+        unsigned char response[40];
+        if (Socket_read(socket, response, sizeof(response)) != sizeof(pong)) {
+                THROW(IOException, "FAIL2BAN: PONG read error -- %s", STRERROR);
+        }
+        if (memcmp(response, pong, sizeof(pong))) {
+                THROW(ProtocolException, "FAIL2BAN: PONG error");
+        }
 }
 

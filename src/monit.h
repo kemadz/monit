@@ -222,11 +222,25 @@ typedef enum {
 
 
 typedef enum {
+        Timestamp_Default = 0,
+        Timestamp_Access,
+        Timestamp_Change,
+        Timestamp_Modification
+} __attribute__((__packed__)) Timestamp_Type;
+
+
+typedef enum {
         Httpd_Disabled                    = 0x0,
         Httpd_Net                         = 0x1,  // IP
         Httpd_Unix                        = 0x2,  // Unix socket
         Httpd_Signature                   = 0x4   // Server Signature enabled
 } __attribute__((__packed__)) Httpd_Flags;
+
+
+typedef enum {
+        Http_Head = 1,
+        Http_Get
+} __attribute__((__packed__)) Http_Method;
 
 
 typedef enum {
@@ -665,6 +679,7 @@ typedef struct Port_T {
                 struct {
                         Hash_Type hashtype;           /**< Type of hash for a checksum (optional) */
                         Operator_Type operator;                         /**< HTTP status operator */
+                        Http_Method method;
                         int status;                                              /**< HTTP status */
                         char *username;
                         char *password;
@@ -743,9 +758,10 @@ typedef struct Resource_T {
 typedef struct Timestamp_T {
         boolean_t initialized;              /**< true if timestamp was initialized */
         boolean_t test_changes;       /**< true if we only should test for changes */
+        Timestamp_Type type;
         Operator_Type operator;                           /**< Comparison operator */
-        int  time;                                        /**< Timestamp watermark */
-        time_t timestamp; /**< The original last modified timestamp for this object*/
+        uint64_t time;                                    /**< Timestamp watermark */
+        time_t lastTimestamp;        /**< Last timestamp (context depends on type) */
         EventAction_T action;  /**< Description of the action upon event occurence */
 
         /** For internal use */
@@ -981,6 +997,13 @@ typedef struct Device_T {
 } *Device_T;
 
 
+typedef struct TimestampInfo_T {
+        uint64_t access;
+        uint64_t change;
+        uint64_t modify;
+} *TimestampInfo_T;
+
+
 typedef struct FileSystemInfo_T {
         long long  f_blocks;              /**< Total data blocks in filesystem */
         long long  f_blocksfree;   /**< Free blocks available to non-superuser */
@@ -1010,7 +1033,7 @@ typedef struct FileSystemInfo_T {
 
 
 typedef struct FileInfo_T {
-        time_t timestamp;                                       /**< Timestamp */
+        struct TimestampInfo_T timestamp;
         int mode;                                              /**< Permission */
         int uid;                                              /**< Owner's uid */
         int gid;                                              /**< Owner's gid */
@@ -1023,7 +1046,7 @@ typedef struct FileInfo_T {
 
 
 typedef struct DirectoryInfo_T {
-        time_t timestamp;                                       /**< Timestamp */
+        struct TimestampInfo_T timestamp;
         int mode;                                              /**< Permission */
         int uid;                                              /**< Owner's uid */
         int gid;                                              /**< Owner's gid */
@@ -1031,7 +1054,7 @@ typedef struct DirectoryInfo_T {
 
 
 typedef struct FifoInfo_T {
-        time_t timestamp;                                       /**< Timestamp */
+        struct TimestampInfo_T timestamp;
         int mode;                                              /**< Permission */
         int uid;                                              /**< Owner's uid */
         int gid;                                              /**< Owner's gid */
@@ -1280,6 +1303,8 @@ extern char *pathnames[];
 extern char *icmpnames[];
 extern char *sslnames[];
 extern char *socketnames[];
+extern char *timestampnames[];
+extern char *httpmethod[];
 
 
 /* ------------------------------------------------------- Public prototypes */
@@ -1306,7 +1331,14 @@ void  LogWarning(const char *, ...) __attribute__((format (printf, 1, 2)));
 void  LogNotice(const char *, ...) __attribute__((format (printf, 1, 2)));
 void  LogInfo(const char *, ...) __attribute__((format (printf, 1, 2)));
 void  LogDebug(const char *, ...) __attribute__((format (printf, 1, 2)));
-void  vLogError(const char *s, va_list ap);
+void  vLogEmergency(const char *, va_list ap);
+void  vLogAlert(const char *, va_list ap);
+void  vLogCritical(const char *, va_list ap);
+void  vLogError(const char *, va_list ap);
+void  vLogWarning(const char *,va_list ap);
+void  vLogNotice(const char *, va_list ap);
+void  vLogInfo(const char *, va_list ap);
+void  vLogDebug(const char *, va_list ap);
 void  vLogAbortHandler(const char *s, va_list ap);
 void  log_close();
 #ifndef HAVE_VSYSLOG

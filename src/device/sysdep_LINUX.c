@@ -134,7 +134,7 @@ static boolean_t _getCifsDiskActivity(void *_inf) {
                 if (! found) {
                         int index;
                         char name[PATH_MAX];
-                        if (sscanf(line, "%d) %1023s", &index, name) == 2 && IS(name, inf->filesystem->object.key)) {
+                        if (sscanf(line, "%d) %1023s", &index, name) == 2 && Str_isEqual(name, inf->filesystem->object.key)) {
                                 found = true;
                         }
                 } else if (found) {
@@ -143,10 +143,10 @@ static boolean_t _getCifsDiskActivity(void *_inf) {
                         uint64_t operations;
                         uint64_t bytes;
                         if (sscanf(line, "%255[^:]: %"PRIu64" %255[^:]: %"PRIu64, label1, &operations, label2, &bytes) == 4) {
-                                if (IS(label1, "Reads") && IS(label2, "Bytes")) {
+                                if (Str_isEqual(label1, "Reads") && Str_isEqual(label2, "Bytes")) {
                                         Statistics_update(&(inf->filesystem->read.bytes), now, bytes);
                                         Statistics_update(&(inf->filesystem->read.operations), now, operations);
-                                } else if (IS(label1, "Writes") && IS(label2, "Bytes")) {
+                                } else if (Str_isEqual(label1, "Writes") && Str_isEqual(label2, "Bytes")) {
                                         Statistics_update(&(inf->filesystem->write.bytes), now, bytes);
                                         Statistics_update(&(inf->filesystem->write.operations), now, operations);
                                         break;
@@ -181,11 +181,11 @@ static boolean_t _getNfsDiskActivity(void *_inf) {
                         uint64_t bytesReceived;
                         uint64_t time;
                         if (sscanf(line, " %255[^:]: %"PRIu64" %*u %*u %"PRIu64 " %"PRIu64" %*u %*u %"PRIu64, name, &operations, &bytesSent, &bytesReceived, &time) == 5) {
-                                if (IS(name, "READ")) {
+                                if (Str_isEqual(name, "READ")) {
                                         Statistics_update(&(inf->filesystem->time.read), now, time / 1000.); // us -> ms
                                         Statistics_update(&(inf->filesystem->read.bytes), now, bytesReceived);
                                         Statistics_update(&(inf->filesystem->read.operations), now, operations);
-                                } else if (IS(name, "WRITE")) {
+                                } else if (Str_isEqual(name, "WRITE")) {
                                         Statistics_update(&(inf->filesystem->time.write), now, time / 1000.); // us -> ms
                                         Statistics_update(&(inf->filesystem->write.bytes), now, bytesSent);
                                         Statistics_update(&(inf->filesystem->write.operations), now, operations);
@@ -196,6 +196,36 @@ static boolean_t _getNfsDiskActivity(void *_inf) {
         }
         fclose(f);
         return true;
+}
+
+
+static boolean_t _getZfsDiskActivity(void *_inf) {
+        Info_T inf = _inf;
+        char path[PATH_MAX];
+        snprintf(path, sizeof(path), "/proc/spl/kstat/zfs/%s/io", inf->filesystem->object.key);
+        FILE *f = fopen(path, "r");
+        if (f) {
+                char line[STRLEN];
+                uint64_t now = Time_milli();
+                uint64_t waitTime = 0ULL, runTime = 0ULL;
+                uint64_t readOperations = 0ULL, readBytes = 0ULL;
+                uint64_t writeOperations = 0ULL, writeBytes = 0ULL;
+                while (fgets(line, sizeof(line), f)) {
+                        if (sscanf(line, "%"PRIu64" %"PRIu64" %"PRIu64" %"PRIu64" %"PRIu64" %*u %*u %"PRIu64"", &readBytes, &writeBytes, &readOperations, &writeOperations, &waitTime, &runTime) == 6) {
+                                Statistics_update(&(inf->filesystem->read.bytes), now, readBytes);
+                                Statistics_update(&(inf->filesystem->read.operations), now, readOperations);
+                                Statistics_update(&(inf->filesystem->write.bytes), now, writeBytes);
+                                Statistics_update(&(inf->filesystem->write.operations), now, writeOperations);
+                                Statistics_update(&(inf->filesystem->time.wait), now, (double)waitTime / 1000000.); // ns -> ms
+                                Statistics_update(&(inf->filesystem->time.run), now, (double)runTime / 1000000.); // ns -> ms
+                                break;
+                        }
+                }
+                fclose(f);
+                return true;
+        }
+        LogError("filesystem statistic error: cannot read %s -- %s\n", path, STRERROR);
+        return false;
 }
 
 
@@ -240,32 +270,31 @@ static boolean_t _getProcfsBlockDiskActivity(void *_inf) {
                         // Fallback for kernels < 2.6.25: the /proc/diskstats used to have just 4 statistics, the file is present on >= 2.6.25 too and has 11 fields (same format as /sys/class/block/<NAME>/stat), but we use sysfs for it
                         // as we read the given partition directly instead of traversing the whole filesystems list. In this function we expect the old 4-statistics format - if it should be ever used as main data collector, it needs to
                         // be modified to support >= 2.6.25 format too.
-                        if (fscanf(f, " %*d %*d %255s %"PRIu64" %"PRIu64" %"PRIu64" %"PRIu64, name, &readOperations, &readSectors, &writeOperations, &writeSectors) == 5 && IS(name, inf->filesystem->object.key)) {
+                        if (fscanf(f, " %*d %*d %255s %"PRIu64" %"PRIu64" %"PRIu64" %"PRIu64, name, &readOperations, &readSectors, &writeOperations, &writeSectors) == 5 && Str_isEqual(name, inf->filesystem->object.key)) {
                                 Statistics_update(&(inf->filesystem->read.bytes), now, readSectors * 512);
                                 Statistics_update(&(inf->filesystem->read.operations), now, readOperations);
                                 Statistics_update(&(inf->filesystem->write.bytes), now, writeSectors * 512);
                                 Statistics_update(&(inf->filesystem->write.operations), now, writeOperations);
-                                fclose(f);
-                                return true;
+                                break;
                         }
                 }
-        } else {
-                LogError("filesystem statistic error: cannot read %s -- %s\n", DISKSTAT, STRERROR);
-                return false;
+                fclose(f);
+                return true;
         }
-        return true;
+        LogError("filesystem statistic error: cannot read %s -- %s\n", DISKSTAT, STRERROR);
+        return false;
 }
 
 
 static boolean_t _compareMountpoint(const char *mountpoint, struct mntent *mnt) {
-        return IS(mountpoint, mnt->mnt_dir) && ! IS(mnt->mnt_fsname, "rootfs");
+        return IS(mountpoint, mnt->mnt_dir);
 }
 
 
 static boolean_t _compareDevice(const char *device, struct mntent *mnt) {
         char target[PATH_MAX] = {};
         // The device listed in /etc/mtab can be a device mapper symlink (e.g. /dev/mapper/centos-root -> /dev/dm-1) ... lookup the device as is first (support for NFS/CIFS/SSHFS/etc.) and fallback to realpath if it didn't match
-        return (IS(device, mnt->mnt_fsname) || (realpath(mnt->mnt_fsname, target) && IS(device, target)));
+        return (Str_isEqual(device, mnt->mnt_fsname) || (realpath(mnt->mnt_fsname, target) && Str_isEqual(device, target)));
 }
 
 
@@ -276,18 +305,16 @@ static boolean_t _setDevice(Info_T inf, const char *path, boolean_t (*compare)(c
                 return false;
         }
         inf->filesystem->object.generation = _statistics.generation;
+        boolean_t mounted = false;
         struct mntent *mnt;
+        char flags[STRLEN];
         while ((mnt = getmntent(f))) {
+                // Scan all entries for overlay mounts (common for rootfs)
                 if (compare(path, mnt)) {
-                        strncpy(inf->filesystem->object.device, mnt->mnt_fsname, sizeof(inf->filesystem->object.device) - 1);
-                        strncpy(inf->filesystem->object.mountpoint, mnt->mnt_dir, sizeof(inf->filesystem->object.mountpoint) - 1);
-                        strncpy(inf->filesystem->object.type, mnt->mnt_type, sizeof(inf->filesystem->object.type) - 1);
-                        if (! IS(mnt->mnt_opts, inf->filesystem->flags)) {
-                                if (*(inf->filesystem->flags)) {
-                                        inf->filesystem->flagsChanged = true;
-                                }
-                                snprintf(inf->filesystem->flags, sizeof(inf->filesystem->flags), "%s", mnt->mnt_opts);
-                        }
+                        snprintf(inf->filesystem->object.device, sizeof(inf->filesystem->object.device), "%s", mnt->mnt_fsname);
+                        snprintf(inf->filesystem->object.mountpoint, sizeof(inf->filesystem->object.mountpoint), "%s", mnt->mnt_dir);
+                        snprintf(inf->filesystem->object.type, sizeof(inf->filesystem->object.type), "%s", mnt->mnt_type);
+                        snprintf(flags, sizeof(flags), "%s", mnt->mnt_opts);
                         inf->filesystem->object.getDiskUsage = _getDiskUsage; // The disk usage method is common for all filesystem types
                         inf->filesystem->object.getDiskActivity = _getDummyDiskActivity; // Set to dummy IO statistics method by default (can be overriden bellow if statistics method is available for this filesystem)
                         if (Str_startsWith(mnt->mnt_type, "nfs")) {
@@ -297,8 +324,14 @@ static boolean_t _setDevice(Info_T inf, const char *path, boolean_t (*compare)(c
                                 // CIFS
                                 inf->filesystem->object.getDiskActivity = _statistics.getCifsDiskActivity;
                                 // Need Windows style name - replace '/' with '\' so we can lookup the filesystem activity in /proc/fs/cifs/Stats
-                                strncpy(inf->filesystem->object.key, inf->filesystem->object.device, sizeof(inf->filesystem->object.key) - 1);
+                                snprintf(inf->filesystem->object.key, sizeof(inf->filesystem->object.key), "%s", inf->filesystem->object.device);
                                 Str_replaceChar(inf->filesystem->object.key, '/', '\\');
+                        } else if (IS(mnt->mnt_type, "zfs")) {
+                                // ZFS
+                                inf->filesystem->object.getDiskActivity = _getZfsDiskActivity;
+                                // Need base zpool name for /proc/spl/kstat/zfs/<NAME>/io lookup:
+                                snprintf(inf->filesystem->object.key, sizeof(inf->filesystem->object.key), "%s", inf->filesystem->object.device);
+                                Str_replaceChar(inf->filesystem->object.key, '/', 0);
                         } else {
                                 if (realpath(mnt->mnt_fsname, inf->filesystem->object.key)) {
                                         // Need base name for /sys/class/block/<NAME>/stat or /proc/diskstats lookup:
@@ -310,16 +343,23 @@ static boolean_t _setDevice(Info_T inf, const char *path, boolean_t (*compare)(c
                                         }
                                 }
                         }
-                        endmntent(f);
-                        inf->filesystem->object.mounted = true;
-                        return true;
+                        mounted = true;
                 }
         }
-        LogError("Lookup for '%s' filesystem failed  -- not found in %s\n", path, MOUNTS);
-error:
         endmntent(f);
-        inf->filesystem->object.mounted = false;
-        return false;
+        inf->filesystem->object.mounted = mounted;
+        if (! mounted) {
+                LogError("Lookup for '%s' filesystem failed  -- not found in %s\n", path, MOUNTS);
+        } else {
+                // Evaluate filesystem flags for the last matching mount (overlay mounts for the same filesystem may have different mount flags)
+                if (! IS(flags, inf->filesystem->flags)) {
+                        if (*(inf->filesystem->flags)) {
+                                inf->filesystem->flagsChanged = true;
+                        }
+                        snprintf(inf->filesystem->flags, sizeof(inf->filesystem->flags), "%s", flags);
+                }
+        }
+        return mounted;
 }
 
 

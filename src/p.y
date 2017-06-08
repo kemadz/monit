@@ -326,7 +326,7 @@ static void _setSSLOptions(SslOptions_T options);
 %token ALERT NOALERT MAILFORMAT UNIXSOCKET SIGNATURE
 %token TIMEOUT RETRY RESTART CHECKSUM EVERY NOTEVERY
 %token DEFAULT HTTP HTTPS APACHESTATUS FTP SMTP SMTPS POP POPS IMAP IMAPS CLAMAV NNTP NTP3 MYSQL DNS WEBSOCKET
-%token SSH DWP LDAP2 LDAP3 RDATE RSYNC TNS PGSQL POSTFIXPOLICY SIP LMTP GPS RADIUS MEMCACHE REDIS MONGODB SIEVE
+%token SSH DWP LDAP2 LDAP3 RDATE RSYNC TNS PGSQL POSTFIXPOLICY SIP LMTP GPS RADIUS MEMCACHE REDIS MONGODB SIEVE SPAMASSASSIN FAIL2BAN
 %token <string> STRING PATH MAILADDR MAILFROM MAILREPLYTO MAILSUBJECT
 %token <string> MAILBODY SERVICENAME STRINGNAME
 %token <number> NUMBER PERCENT LOGLIMIT CLOSELIMIT DNSLIMIT KEEPALIVELIMIT
@@ -334,12 +334,12 @@ static void _setSSLOptions(SslOptions_T options);
 %token <number> CLEANUPLIMIT
 %token <real> REAL
 %token CHECKPROC CHECKFILESYS CHECKFILE CHECKDIR CHECKHOST CHECKSYSTEM CHECKFIFO CHECKPROGRAM CHECKNET
-%token THREADS CHILDREN STATUS ORIGIN VERSIONOPT READ WRITE OPERATION SERVICETIME DISK
+%token THREADS CHILDREN METHOD GET HEAD STATUS ORIGIN VERSIONOPT READ WRITE OPERATION SERVICETIME DISK
 %token RESOURCE MEMORY TOTALMEMORY LOADAVG1 LOADAVG5 LOADAVG15 SWAP
 %token MODE ACTIVE PASSIVE MANUAL ONREBOOT NOSTART LASTSTATE CPU TOTALCPU CPUUSER CPUSYSTEM CPUWAIT
 %token GROUP REQUEST DEPENDS BASEDIR SLOT EVENTQUEUE SECRET HOSTHEADER
 %token UID EUID GID MMONIT INSTANCE USERNAME PASSWORD
-%token TIMESTAMP CHANGED MILLISECOND SECOND MINUTE HOUR DAY MONTH
+%token TIME ATIME CTIME MTIME CHANGED MILLISECOND SECOND MINUTE HOUR DAY MONTH
 %token SSLAUTO SSLV2 SSLV3 TLSV1 TLSV11 TLSV12 CERTMD5 AUTO
 %token BYTE KILOBYTE MEGABYTE GIGABYTE
 %token INODE SPACE TFREE PERMISSION SIZE MATCH NOT IGNORE ACTION UPTIME
@@ -451,6 +451,7 @@ optfilesyslist  : /* EMPTY */
 optfilesys      : start
                 | stop
                 | restart
+                | exist
                 | actionrate
                 | every
                 | alert
@@ -1480,6 +1481,9 @@ protocol        : PROTOCOL APACHESTATUS apache_stat_list {
                 | PROTOCOL DWP  {
                         portset.protocol = Protocol_get(Protocol_DWP);
                   }
+                | PROTOCOL FAIL2BAN {
+                        portset.protocol = Protocol_get(Protocol_FAIL2BAN);
+                }
                 | PROTOCOL FTP {
                         portset.protocol = Protocol_get(Protocol_FTP);
                   }
@@ -1546,6 +1550,9 @@ protocol        : PROTOCOL APACHESTATUS apache_stat_list {
                         portset.type = Socket_Tcp;
                         portset.protocol = Protocol_get(Protocol_SMTP);
                  }
+                | PROTOCOL SPAMASSASSIN {
+                        portset.protocol = Protocol_get(Protocol_SPAMASSASSIN);
+                  }
                 | PROTOCOL SSH  {
                         portset.protocol = Protocol_get(Protocol_SSH);
                   }
@@ -1684,6 +1691,7 @@ http            : username {
                 | request
                 | responsesum
                 | status
+                | method
                 | hostheader
                 | '[' httpheaderlist ']'
                 ;
@@ -1694,7 +1702,19 @@ status          : STATUS operator NUMBER {
                   }
                 ;
 
+method          : METHOD GET {
+                        portset.parameters.http.method = Http_Get;
+                  }
+                | METHOD HEAD {
+                        portset.parameters.http.method = Http_Head;
+                  }
+                ;
+
 request         : REQUEST PATH {
+                        portset.parameters.http.request = Util_urlEncode($2, false);
+                        FREE($2);
+                  }
+                | REQUEST STRING {
                         portset.parameters.http.request = Util_urlEncode($2, false);
                         FREE($2);
                   }
@@ -1882,7 +1902,7 @@ connectiontimeout : TIMEOUT NUMBER SECOND {
                   ;
 
 retry           : RETRY NUMBER {
-                        $<number>$ = $2;
+                        portset.retry = $2;
                   }
                 ;
 
@@ -1963,7 +1983,7 @@ eventoption     : ACTION          { mailset.events |= Event_Action; }
                 | SPEED           { mailset.events |= Event_Speed; }
                 | STATUS          { mailset.events |= Event_Status; }
                 | TIMEOUT         { mailset.events |= Event_Timeout; }
-                | TIMESTAMP       { mailset.events |= Event_Timestamp; }
+                | TIME            { mailset.events |= Event_Timestamp; }
                 | UID             { mailset.events |= Event_Uid; }
                 | UPTIME          { mailset.events |= Event_Uptime; }
                 ;
@@ -2064,7 +2084,7 @@ resourceprocesslist : resourceprocessopt
                     ;
 
 resourceprocessopt  : resourcecpuproc
-                    | resourcemem
+                    | resourcememproc
                     | resourcethreads
                     | resourcechild
                     | resourceload
@@ -2114,6 +2134,18 @@ resourcecpuid   : CPUUSER   { $<number>$ = Resource_CpuUser; }
                 ;
 
 resourcemem     : MEMORY operator value unit {
+                        resourceset.resource_id = Resource_MemoryKbyte;
+                        resourceset.operator = $<number>2;
+                        resourceset.limit = $<real>3 * $<number>4;
+                  }
+                | MEMORY operator value PERCENT {
+                        resourceset.resource_id = Resource_MemoryPercent;
+                        resourceset.operator = $<number>2;
+                        resourceset.limit = $<real>3;
+                  }
+                ;
+
+resourcememproc : MEMORY operator value unit {
                         resourceset.resource_id = Resource_MemoryKbyte;
                         resourceset.operator = $<number>2;
                         resourceset.limit = $<real>3 * $<number>4;
@@ -2201,13 +2233,21 @@ value           : REAL { $<real>$ = $1; }
                 | NUMBER { $<real>$ = (float) $1; }
                 ;
 
-timestamp       : IF TIMESTAMP operator NUMBER time rate1 THEN action1 recovery {
+timestamptype   : TIME  { $<number>$ = Timestamp_Default; }
+                | ATIME { $<number>$ = Timestamp_Access; }
+                | CTIME { $<number>$ = Timestamp_Change; }
+                | MTIME { $<number>$ = Timestamp_Modification; }
+                ;
+
+timestamp       : IF timestamptype operator NUMBER time rate1 THEN action1 recovery {
+                        timestampset.type = $<number>2;
                         timestampset.operator = $<number>3;
                         timestampset.time = ($4 * $<number>5);
                         addeventaction(&(timestampset).action, $<number>8, $<number>9);
                         addtimestamp(&timestampset);
                   }
-                | IF CHANGED TIMESTAMP rate1 THEN action1 {
+                | IF CHANGED timestamptype rate1 THEN action1 {
+                        timestampset.type = $<number>3;
                         timestampset.test_changes = true;
                         addeventaction(&(timestampset).action, $<number>6, Action_Ignored);
                         addtimestamp(&timestampset);
@@ -3311,6 +3351,18 @@ static void addport(Port_T *list, Port_T port) {
                 } else {
                         p->parameters.http.hashtype = Hash_Unknown;
                 }
+                if (! p->parameters.http.method) {
+                        if ((p->url_request && p->url_request->regex) || p->parameters.http.checksum) {
+                                p->parameters.http.method = Http_Get;
+                        } else {
+                                p->parameters.http.method = Http_Head;
+                        }
+                } else if (p->parameters.http.method == Http_Head) {
+                        // Sanity check: if content or checksum test is used, the method Http_Head is not allowed, as we need the content
+                        if ((p->url_request && p->url_request->regex) || p->parameters.http.checksum) {
+                                yyerror2("if response content or checksum test is enabled, the HEAD method is not allowed");
+                        }
+                }
         }
 
         p->next = *list;
@@ -3323,8 +3375,12 @@ static void addport(Port_T *list, Port_T port) {
 
 
 static void addhttpheader(Port_T port, const char *header) {
-        if (! port->parameters.http.headers)
+        if (! port->parameters.http.headers) {
                 port->parameters.http.headers = List_new();
+        }
+        if (Str_startsWith(header, "Connection:") && ! Str_sub(header, "close")) {
+                yywarning("We don't recommend setting the Connection header. Monit will always close the connection even if 'keep-alive' is set\n");
+        }
         List_append(port->parameters.http.headers, (char *)header);
 }
 
@@ -3358,19 +3414,11 @@ static void addtimestamp(Timestamp_T ts) {
 
         Timestamp_T t;
         NEW(t);
+        t->type         = ts->type;
         t->operator     = ts->operator;
         t->time         = ts->time;
         t->action       = ts->action;
         t->test_changes = ts->test_changes;
-
-        if (t->test_changes) {
-                if (! File_exist(current->path))
-                        DEBUG("The path '%s' used in the TIMESTAMP statement refer to a non-existing object\n", current->path);
-                else if (! (t->timestamp = file_getTimestamp(current->path, S_IFDIR|S_IFREG)))
-                        yyerror2("Cannot get the timestamp for '%s'", current->path);
-                else
-                        t->initialized = true;
-        }
 
         t->next = current->timestamplist;
         current->timestamplist = t;
@@ -3540,7 +3588,7 @@ static void addchecksum(Checksum_T cs) {
 
         cs->initialized = true;
 
-        if (! *cs->hash) {
+        if (STR_UNDEF(cs->hash)) {
                 if (cs->type == Hash_Unknown)
                         cs->type = Hash_Default;
                 if (! (Util_getChecksum(current->path, cs->type, cs->hash, sizeof(cs->hash)))) {
@@ -4477,6 +4525,7 @@ static void reset_resourceset() {
  * Reset the Timestamp set to default values
  */
 static void reset_timestampset() {
+        timestampset.type = Timestamp_Default;
         timestampset.operator = Operator_Equal;
         timestampset.time = 0;
         timestampset.test_changes = false;

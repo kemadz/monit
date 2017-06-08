@@ -182,7 +182,7 @@ int initprocesstree_sysdep(ProcessTree_T **reference, ProcessEngine_Flags pflags
                                 if (StringBuffer_length(cmdline))
                                         pt[i].cmdline = Str_dup(StringBuffer_toString(StringBuffer_trim(cmdline)));
                         }
-                        if (! pt[i].cmdline || ! *pt[i].cmdline) {
+                        if (STR_UNDEF(pt[i].cmdline)) {
                                 FREE(pt[i].cmdline);
                                 pt[i].cmdline = Str_dup(pinfo[i].ki_comm);
                         }
@@ -237,9 +237,7 @@ boolean_t used_system_memory_sysdep(SystemInfo_T *si) {
         }
         uint64_t arcsize = 0ULL;
         len = sizeof(arcsize);
-        if (sysctlbyname("kstat.zfs.misc.arcstats.size", &arcsize, &len, NULL, 0) == -1) {
-                DEBUG("system statistics error -- cannot get ZFS ARC memory usage: %s\n", STRERROR);
-        } else {
+        if (sysctlbyname("kstat.zfs.misc.arcstats.size", &arcsize, &len, NULL, 0) == 0) {
                 if (len != sizeof(arcsize)) {
                         LogError("system statistics error -- ZFS ARC memory usage statics error\n");
                         return false;

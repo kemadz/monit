@@ -574,7 +574,7 @@ static void _testUnix(Port_T p) {
 
 static void _testIp(Port_T p) {
         char error[STRLEN];
-        Connection_State is_available = Connection_Failed;
+        volatile Connection_State is_available = Connection_Failed;
         struct addrinfo *result = _resolve(p->hostname, p->target.net.port, p->type, p->family);
         if (result) {
                 // The host may resolve to multiple IPs and if at least one succeeded, we have no problem and don't have to flood the log with partial errors => log only the last error
@@ -586,10 +586,11 @@ static void _testIp(Port_T p) {
                                 {
                                         S = _createIpSocket(p->hostname, r->ai_addr, r->ai_addrlen, localaddr, p->outgoing.addrlen, r->ai_family, r->ai_socktype, r->ai_protocol, &(p->target.net.ssl.options), p->timeout);
                                         S->Port = p;
+                                        p->protocol->check(S);
 #ifdef HAVE_OPENSSL
+                                        // Set the minimum valid days past the protocol check as if the connection uses STARTTLS to switch plain->SSL, we have no SSL certificate informations until the STARTTTLS is performed
                                         p->target.net.ssl.certificate.validDays = Ssl_getCertificateValidDays(S->ssl);
 #endif
-                                        p->protocol->check(S);
                                         is_available = Connection_Ok;
 
                                 }

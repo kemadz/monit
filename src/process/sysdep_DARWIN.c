@@ -183,7 +183,7 @@ int initprocesstree_sysdep(ProcessTree_T **reference, ProcessEngine_Flags pflags
                                 if (StringBuffer_length(cmdline))
                                         pt[i].cmdline = Str_dup(StringBuffer_toString(StringBuffer_trim(cmdline)));
                         }
-                        if (! pt[i].cmdline || ! *pt[i].cmdline) {
+                        if (STR_UNDEF(pt[i].cmdline)) {
                                 FREE(pt[i].cmdline);
                                 pt[i].cmdline = Str_dup(pinfo[i].kp_proc.p_comm);
                         }
@@ -202,6 +202,7 @@ int initprocesstree_sysdep(ProcessTree_T **reference, ProcessEngine_Flags pflags
                                 pt[i].cpu.time     = (double)(tinfo.pti_total_user + tinfo.pti_total_system) / 100000000.; // The time is in nanoseconds, we store it as 1/10s
                                 pt[i].threads      = tinfo.pti_threadnum;
                         }
+#ifdef rusage_info_current
                         // Disk IO
                         rusage_info_current rusage;
                         if (proc_pid_rusage(pt[i].pid, RUSAGE_INFO_CURRENT, (rusage_info_t *)&rusage) < 0) {
@@ -212,6 +213,7 @@ int initprocesstree_sysdep(ProcessTree_T **reference, ProcessEngine_Flags pflags
                                 pt[i].read.bytes = rusage.ri_diskio_bytesread;
                                 pt[i].write.bytes = rusage.ri_diskio_byteswritten;
                         }
+#endif
                 }
         }
         if (pflags & ProcessEngine_CollectCommandLine) {

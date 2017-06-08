@@ -34,32 +34,27 @@
 #include "exceptions/IOException.h"
 #include "exceptions/ProtocolException.h"
 
-
 /**
- *  Check the server for greeting code +OK, then send QUIT and check for code +OK
+ *  Send PING and check for PONG.
  *
  *  @file
  */
-void check_pop(Socket_T socket) {
+void check_spamassassin(Socket_T socket) {
         ASSERT(socket);
 
+        // Send PING
+        if (Socket_print(socket, "PING SPAMC/1.2\r\n") < 0) {
+                THROW(IOException, "SPAMASSASSIN: PING command error -- %s", STRERROR);
+        }
+
+        // Read and check PONG
         char buf[STRLEN];
-        const char *ok = "+OK";
-
-        // Read and check POP greeting
-        if (! Socket_readLine(socket, buf, sizeof(buf)))
-                THROW(IOException, "POP: greeting read error -- %s", errno ? STRERROR : "no data");
+        if (! Socket_readLine(socket, buf, sizeof(buf))) {
+                THROW(IOException, "SPAMASSASSIN: PONG read error -- %s", STRERROR);
+        }
         Str_chomp(buf);
-        if (strncasecmp(buf, ok, strlen(ok)) != 0)
-                THROW(ProtocolException, "POP: invalid greeting -- %s", buf);
-
-        // QUIT and check response
-        if (Socket_print(socket, "QUIT\r\n") < 0)
-                THROW(IOException, "POP: QUIT command error -- %s", STRERROR);
-        if (! Socket_readLine(socket, buf, sizeof(buf)))
-                THROW(IOException, "POP: QUIT response read error -- %s", errno ? STRERROR : "no data");
-        Str_chomp(buf);
-        if (strncasecmp(buf, ok, strlen(ok)) != 0)
-                THROW(ProtocolException, "POP: invalid QUIT response -- %s", buf);
+        if (! Str_startsWith(buf, "SPAMD/") || ! Str_sub(buf, " PONG")) {
+                THROW(ProtocolException, "SPAMASSASSIN: invalid PONG response -- %s", buf);
+        }
 }
 

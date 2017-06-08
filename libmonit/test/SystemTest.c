@@ -28,14 +28,21 @@ int main(void) {
 
         printf("=> Test0: check error description\n");
         {
-                const char *error;
-                assert((error = System_getError(EINVAL)) != NULL);
+                const char *error = System_getError(EINVAL);
+                assert(error != NULL);
                 printf("\tEINVAL description: %s\n", error);
                 errno = EINVAL;
                 assert(Str_isEqual(System_getLastError(), error));
 
         }
         printf("=> Test0: OK\n\n");
+
+        printf("=> Test1: check filedescriptors wrapper\n");
+        {
+                assert(System_getDescriptorsGuarded(10) == 10);
+
+        }
+        printf("=> Test1: OK\n\n");
 
         printf("============> System Tests: OK\n\n");
 

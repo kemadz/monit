@@ -1790,7 +1790,7 @@ enable execute repetition if the error persists for a given number of
 cycles. For instance:
 
  if failed <test> then exec "/usr/local/bin/sms.sh"
-      as uid nobody and gid nobody
+      as uid "nobody" and gid "nobody"
       repeat every 5 cycles
 
 Remember, if Monit is run by root, then all programs executed by Monit
@@ -2150,18 +2150,50 @@ I<action> is a choice of "ALERT", "RESTART", "START", "STOP",
 The timestamp statement may only be used in a file, fifo or
 directory service entry.
 
-Specific timestamp syntax:
+Relative timestamp syntax:
 
- IF TIMESTAMP [[operator] value [unit]] THEN action
+ IF <ACCESS TIME | ATIME | MODIFICATION TIME | MTIME | CHANGE TIME | CTIME | TIME[STAMP]> <operator> <value> [unit] THEN <action>
 
-Timestamp changed syntax:
+Timestamp change syntax:
 
- IF CHANGED TIMESTAMP THEN action
+ IF CHANGED <ACCESS TIME | ATIME | MODIFICATION TIME | MTIME | CHANGE TIME | CTIME | TIME[STAMP]> THEN action
+
+There are four timestamp test types:
+
+=over 12
+
+=item ACCESS (ATIME)
+
+Test the timestamp which is updated whenever the object is accessed, for
+example the file is read. Filesystem usually allows to disable I<atime>
+updates using mount options, so this test will work only if the filesystem
+performs atime updates.
+
+=item CHANGE (CTIME)
+
+Test the timestamp which is updated whenever the object metadata such
+as owner, group, permissions or hard link count are changed.
+
+=item MODIFICATION (MTIME)
+
+Test the timestamp which is updated whenever the object content is modified.
+The file modification timestamp is updated whenever the file is truncated
+or written to. The directory modification timestamp is updated whenever
+some files/subdirectories were added to the directory or removed from that
+directory.
+
+=item DEFAULT (LATEST OF CHANGE AND MODIFICATION TIMES)
+
+If no specific timestamp type is set, the latest of change and modification
+timestamps is checked. This test allows for simple testing of any object
+modification (data and metadata).
+
+=back
 
 I<operator> is a choice of "<", ">", "!=", "==" in C notation,
-"GT", "LT", "EQ", "NE" in shell sh notation and "GREATER",
-"LESS", "EQUAL", "NOTEQUAL" in human readable form (if not
-specified, default is EQUAL).
+"GT", "LT", "EQ", "NE" in shell sh notation and "NEWER, "OLDER",
+"GREATER", "LESS", "EQUAL", "NOTEQUAL" in human readable form (if
+not specified, default is EQUAL).
 
 I<value> is a time watermark.
 
@@ -2170,16 +2202,19 @@ I<unit> is either "SECOND(S)", "MINUTE(S)", "HOUR(S)" or "DAY(S)".
 I<action> is a choice of "ALERT", "RESTART", "START", "STOP",
 "EXEC" or "UNMONITOR".
 
-For example to reload apache if the configuration file timestamp
-changed:
+For example to reload apache if the configuration file changed:
 
  check file apache_conf with path /etc/apache/httpd.conf
    if changed timestamp then exec "/usr/bin/apachectl graceful"
 
-For example testing directory for file addition or removal:
+For example to test directory for file addition or removal:
 
  check directory bar path /foo/bar
-       if timestamp < 1 hour then alert
+   if changed timestamp then alert
+
+Example for sending alert if a log file is not updated for more than 1 hour:
+
+   if timestamp is older than 1 hour then alert
 
 
 =head2 FILE SIZE TEST
@@ -2374,7 +2409,7 @@ Platforms I/O metrics granularity and filesystem support in Monit:
  | AIX          | per-disk       | Disk io monitoring currently not supported | JFSx   |
  | DragonFlyBSD | per-disk       | UFS                                        | HAMMER |
  | FreeBSD      | per-disk       | UFS                                        | ZFS    |
- | Linux        | per-filesystem | EXTx, XFS, BTRFS, NFS, CIFS                |        |
+ | Linux        | per-filesystem | EXTx, XFS, BTRFS, ZFS, NFS, CIFS           |        |
  | MacOS        | per-disk       | HFS                                        |        |
  | NetBSD       | per-disk       | FFS                                        | NFS    |
  | OpenBSD      | per-disk       | FFS                                        |        |
@@ -2528,9 +2563,9 @@ or owner and effective user of a process.
 
 Syntax:
 
- IF FAILED [E]UID user THEN action
+ IF FAILED [E]UID <value> THEN action
 
-I<user> defines a user id either in numeric or in string form.
+I<value> defines a user id either in numeric or in string form.
 
 I<action> is a choice of "ALERT", "RESTART", "START", "STOP",
 "EXEC" or "UNMONITOR".
@@ -2538,7 +2573,7 @@ I<action> is a choice of "ALERT", "RESTART", "START", "STOP",
 Example:
 
  check file shadow with path /etc/shadow
-       if failed uid root then alert
+       if failed uid "root" then alert
 
 
 =head2 GID TEST
@@ -2548,9 +2583,9 @@ or process.
 
 Syntax:
 
- IF FAILED GID group THEN action
+ IF FAILED GID <value> THEN action
 
-I<group> defines a group id either in numeric or in string form.
+I<value> defines a group id either in numeric or in string form.
 
 I<action> is a choice of "ALERT", "RESTART", "START", "STOP",
 "EXEC" or "UNMONITOR".
@@ -2558,7 +2593,7 @@ I<action> is a choice of "ALERT", "RESTART", "START", "STOP",
 Example:
 
  check file shadow with path /etc/shadow
-       if failed gid shadow then alert
+       if failed gid "shadow" then alert
 
 
 =head2 PID TEST
@@ -3085,6 +3120,7 @@ knows how to speak:
  I<APACHE-STATUS>
  I<DNS>
  I<DWP>
+ I<FAIL2BAN>
  I<FTP>
  I<GPS>
  I<HTTP>
@@ -3112,6 +3148,7 @@ knows how to speak:
  I<SIP>
  I<SMTP>
  I<SMTPS>
+ I<SPAMASSASSIN>
  I<SSH>
  I<TNS>
  I<WEBSOCKET>
@@ -3203,6 +3240,7 @@ Syntax:
      [USERNAME "string"]
      [PASSWORD "string"]
      [REQUEST "string"]
+     [METHOD <GET|HEAD>]
      [STATUS operator number]
      [CHECKSUM checksum]
      [HTTP HEADERS list of headers]
@@ -3223,6 +3261,11 @@ For example:
     protocol http
     request "/data/show?a=b&c=d"
  then restart
+
+I<METHOD> set the HTTP request method. If not specified, Monit prefers
+the HTTP HEAD request method to save bandwidth, unless a response content
+or response checksum is tested. As some webservers may not support the
+HEAD method, one may want to set the method explicitly.
 
 I<STATUS> option can be used to explicitly test the HTTP status code
 returned by the HTTP server. If not used, the HTTP protocol test will
@@ -3591,7 +3634,7 @@ request to change uid and gid.
 
  check process tomcat with pidfile /var/run/tomcat.pid
        start program = "/etc/init.d/tomcat start"
-             as uid nobody and gid nobody
+             as uid "nobody" and gid "nobody"
        stop program  = "/etc/init.d/tomcat stop"
              # You can also use id numbers instead and write:
              as uid 99 and with gid 99
@@ -3785,8 +3828,8 @@ statement and a file check dependency:
           and expect 8f7f419955cefa0b33a2ba316cba3659
               then unmonitor
        if failed permission 755 then unmonitor
-       if failed uid root then unmonitor
-       if failed gid root then unmonitor
+       if failed uid "root" then unmonitor
+       if failed gid "root" then unmonitor
        if changed timestamp then alert
        group apache
 
