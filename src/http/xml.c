@@ -227,14 +227,14 @@ static void status_service(Service_T S, StringBuffer_T B, int V) {
                                         "<change>%"PRIu64"</change>"
                                         "<modify>%"PRIu64"</modify>"
                                         "</timestamps>"
-                                        "<size>%llu</size>",
+                                        "<size>%lld</size>",
                                         S->inf.file->mode & 07777,
                                         (int)S->inf.file->uid,
                                         (int)S->inf.file->gid,
                                         S->inf.file->timestamp.access,
                                         S->inf.file->timestamp.change,
                                         S->inf.file->timestamp.modify,
-                                        (unsigned long long)S->inf.file->size);
+                                        (long long)S->inf.file->size);
                                 if (S->checksum)
                                         StringBuffer_append(B, "<checksum type=\"%s\">%s</checksum>", checksumnames[S->checksum->type], S->inf.file->cs_sum);
                                 break;
@@ -511,7 +511,7 @@ static void status_service(Service_T S, StringBuffer_T B, int V) {
                                             "<output><![CDATA[",
                                             (long long)S->program->started,
                                             S->program->exitStatus);
-                        _escapeCDATA(B, StringBuffer_toString(S->program->output));
+                        _escapeCDATA(B, StringBuffer_toString(S->program->lastOutput));
                         StringBuffer_append(B,
                                             "]]></output>"
                                             "</program>");

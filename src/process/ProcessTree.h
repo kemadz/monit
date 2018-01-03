@@ -33,7 +33,6 @@ typedef struct ProcessTree_T {
         boolean_t zombie;
         pid_t pid;
         pid_t ppid;
-        int threads;
         int parent;
         struct {
                 int uid;
@@ -41,10 +40,16 @@ typedef struct ProcessTree_T {
                 int gid;
         } cred;
         struct {
-                float usage;
-                float usage_total;
+                struct {
+                        float self;
+                        float children;
+                } usage;
                 double time;
         } cpu;
+        struct {
+                int self;
+                int children;
+        } threads;
         struct {
                 int count;
                 int total;
@@ -66,6 +71,7 @@ typedef struct ProcessTree_T {
         } write;
         time_t uptime;
         char *cmdline;
+        char *secattr;
 } ProcessTree_T;
 
 
@@ -80,7 +86,7 @@ int ProcessTree_init(ProcessEngine_Flags pflags);
 /**
  * Delete the process tree
  */
-void ProcessTree_delete();
+void ProcessTree_delete(void);
 
 
 /**
@@ -126,7 +132,7 @@ boolean_t init_system_info(void);
  * Update system statistic
  * @return true if successful, otherwise false
  */
-boolean_t update_system_info();
+boolean_t update_system_info(void);
 
 
 #endif

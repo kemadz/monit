@@ -42,7 +42,8 @@ typedef enum {
         SSL_V3,
         SSL_TLSV1,
         SSL_TLSV11,
-        SSL_TLSV12
+        SSL_TLSV12,
+        SSL_TLSV13
 } __attribute__((__packed__)) Ssl_Version;
 
 
@@ -74,19 +75,19 @@ typedef struct T *T;
 /**
  * Prepare for the beginning of active use of the OpenSSL library
  */
-void Ssl_start();
+void Ssl_start(void);
 
 
 /**
  * Gracefully terminate the active use of the OpenSSL library
  */
-void Ssl_stop();
+void Ssl_stop(void);
 
 
 /**
  * Cleanup thread's error queue.
  */
-void Ssl_threadCleanup();
+void Ssl_threadCleanup(void);
 
 
 /**

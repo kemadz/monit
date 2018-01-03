@@ -323,13 +323,21 @@ int initprocesstree_sysdep(ProcessTree_T **reference, ProcessEngine_Flags pflags
                         pt[i].cmdline = Str_dup(*buf ? buf : procname);
                 }
 
+                /********** /proc/PID/attr/current **********/
+                if (file_readProc(buf, sizeof(buf), "attr/current", stat_pid, NULL)) {
+                        pt[i].secattr = Str_trim(Str_dup(buf));
+                }
+
                 /* Set the data in ptree only if all process related reads succeeded (prevent partial data in the case that continue was called during data collecting) */
                 pt[i].pid = stat_pid;
                 pt[i].ppid = stat_ppid;
                 pt[i].cred.uid = stat_uid;
                 pt[i].cred.euid = stat_euid;
+#ifdef LSM_LABEL_CHECK
+                pt[i].lsmlabel = stat_lsmlabel;
+#endif
                 pt[i].cred.gid = stat_gid;
-                pt[i].threads = stat_item_threads;
+                pt[i].threads.self = stat_item_threads;
                 pt[i].uptime = starttime > 0 ? (systeminfo.time / 10. - (starttime + (time_t)(stat_item_starttime / hz))) : 0;
                 pt[i].cpu.time = (double)(stat_item_utime + stat_item_stime) / hz * 10.; // jiffies -> seconds = 1/hz
                 pt[i].memory.usage = (uint64_t)stat_item_rss * (uint64_t)page_size;

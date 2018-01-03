@@ -333,6 +333,8 @@ nostart           { return NOSTART; }
 laststate         { return LASTSTATE; }
 uid               { return UID; }
 euid              { return EUID; }
+security          { return SECURITY; }
+attribute(s)?     { return ATTRIBUTE; }
 gid               { return GID; }
 request           { return REQUEST; }
 secret            { return SECRET; }
@@ -360,6 +362,7 @@ sslv3             { return SSLV3; }
 tlsv1             { return TLSV1; }
 tlsv11            { return TLSV11; }
 tlsv12            { return TLSV12; }
+tlsv13            { return TLSV13; }
 cipher(s)?        { return CIPHER; }
 auto              { return AUTO; }
 sslauto           { return SSLAUTO; }
@@ -1080,8 +1083,8 @@ static int pop_buffer_state(void) {
                 FREE(currentfile);
                 currentfile = buffer_stack[buffer_stack_ptr].currentfile;
 
-                yy_delete_buffer( YY_CURRENT_BUFFER );
-                yy_switch_to_buffer( buffer_stack[buffer_stack_ptr].buffer );
+                yy_delete_buffer(YY_CURRENT_BUFFER);
+                yy_switch_to_buffer(buffer_stack[buffer_stack_ptr].buffer);
 
         }
 

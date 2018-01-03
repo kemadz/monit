@@ -102,14 +102,14 @@
 /* -------------------------------------------------------------- Prototypes */
 
 
-static void  do_init();                       /* Initialize this application */
-static void  do_reinit();           /* Re-initialize the runtime application */
+static void  do_init(void);                   /* Initialize this application */
+static void  do_reinit(void);       /* Re-initialize the runtime application */
 static void  do_action(char **);         /* Dispatch to the submitted action */
-static void  do_exit();                                    /* Finalize monit */
-static void  do_default();                              /* Do default action */
+static void  do_exit(void);                                /* Finalize monit */
+static void  do_default(void);                          /* Do default action */
 static void  handle_options(int, char **);         /* Handle program options */
-static void  help();                 /* Print program help message to stdout */
-static void  version();                         /* Print version information */
+static void  help(void);             /* Print program help message to stdout */
+static void  version(void);                     /* Print version information */
 static void *heartbeat(void *args);              /* M/Monit heartbeat thread */
 static RETSIGTYPE do_reload(int);       /* Signalhandler for a daemon reload */
 static RETSIGTYPE do_destroy(int);   /* Signalhandler for monit finalization */
@@ -142,7 +142,7 @@ char *operatorshortnames[] = {"<", "<=", ">", ">=", "=", "!=", "<>"};
 char *servicetypes[] = {"Filesystem", "Directory", "File", "Process", "Remote Host", "System", "Fifo", "Program", "Network"};
 char *pathnames[] = {"Path", "Path", "Path", "Pid file", "Path", "", "Path"};
 char *icmpnames[] = {"Reply", "", "", "Destination Unreachable", "Source Quench", "Redirect", "", "", "Ping", "", "", "Time Exceeded", "Parameter Problem", "Timestamp Request", "Timestamp Reply", "Information Request", "Information Reply", "Address Mask Request", "Address Mask Reply"};
-char *sslnames[] = {"auto", "v2", "v3", "tlsv1", "tlsv1.1", "tlsv1.2"};
+char *sslnames[] = {"auto", "v2", "v3", "tlsv1", "tlsv1.1", "tlsv1.2", "tlsv1.3"};
 char *socketnames[] = {"unix", "IP", "IPv4", "IPv6"};
 char *timestampnames[] = {"modify/change time", "access time", "change time", "modify time"};
 char *httpmethod[] = {"", "HEAD", "GET"};
@@ -768,7 +768,7 @@ static void handle_options(int argc, char **argv) {
                         do_init();
                         assert(Run.id);
                         printf("Reset Monit Id? [y/n]> ");
-                        if ( getchar() == 'y') {
+                        if (getchar() == 'y') {
                                 File_delete(Run.files.id);
                                 Util_monitId(Run.files.id);
                                 kill_daemon(SIGHUP); // make any running Monit Daemon reload the new ID-File

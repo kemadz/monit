@@ -172,33 +172,33 @@ static command_t command = NULL;
 static command_t command1 = NULL;
 static command_t command2 = NULL;
 static Service_T depend_list = NULL;
-static struct Uid_T uidset;
-static struct Gid_T gidset;
-static struct Pid_T pidset;
-static struct Pid_T ppidset;
-static struct FsFlag_T fsflagset;
-static struct NonExist_T nonexistset;
-static struct Exist_T existset;
-static struct Status_T statusset;
-static struct Perm_T permset;
-static struct Size_T sizeset;
-static struct Uptime_T uptimeset;
-static struct LinkStatus_T linkstatusset;
-static struct LinkSpeed_T linkspeedset;
-static struct LinkSaturation_T linksaturationset;
-static struct Bandwidth_T bandwidthset;
-static struct Match_T matchset;
-static struct Icmp_T icmpset;
-static struct Mail_T mailset;
-static struct SslOptions_T sslset;
-static struct Port_T portset;
-static struct MailServer_T mailserverset;
-static struct Mmonit_T mmonitset;
-static struct FileSystem_T filesystemset;
-static struct Resource_T resourceset;
-static struct Checksum_T checksumset;
-static struct Timestamp_T timestampset;
-static struct ActionRate_T actionrateset;
+static struct Uid_T uidset = {};
+static struct Gid_T gidset = {};
+static struct Pid_T pidset = {};
+static struct Pid_T ppidset = {};
+static struct FsFlag_T fsflagset = {};
+static struct NonExist_T nonexistset = {};
+static struct Exist_T existset = {};
+static struct Status_T statusset = {};
+static struct Perm_T permset = {};
+static struct Size_T sizeset = {};
+static struct Uptime_T uptimeset = {};
+static struct LinkStatus_T linkstatusset = {};
+static struct LinkSpeed_T linkspeedset = {};
+static struct LinkSaturation_T linksaturationset = {};
+static struct Bandwidth_T bandwidthset = {};
+static struct Match_T matchset = {};
+static struct Icmp_T icmpset = {};
+static struct Mail_T mailset = {};
+static struct SslOptions_T sslset = {};
+static struct Port_T portset = {};
+static struct MailServer_T mailserverset = {};
+static struct Mmonit_T mmonitset = {};
+static struct FileSystem_T filesystemset = {};
+static struct Resource_T resourceset = {};
+static struct Checksum_T checksumset = {};
+static struct Timestamp_T timestampset = {};
+static struct ActionRate_T actionrateset = {};
 static struct precedence_t ihp = {false, false, false};
 static struct rate_t rate = {1, 1};
 static struct rate_t rate1 = {1, 1};
@@ -214,8 +214,8 @@ static Digest_Type digesttype = Digest_Cleartext;
 
 /* -------------------------------------------------------------- Prototypes */
 
-static void  preparse();
-static void  postparse();
+static void  preparse(void);
+static void  postparse(void);
 static boolean_t _parseOutgoingAddress(const char *ip, Outgoing_T *outgoing);
 static void  addmail(char *, Mail_T, Mail_T *);
 static Service_T createservice(Service_Type, char *, char *, State_Type (*)(Service_T));
@@ -266,43 +266,44 @@ static void  prepare_urlrequest(URL_T U);
 static void  seturlrequest(int, char *);
 static void  setlogfile(char *);
 static void  setpidfile(char *);
-static void  reset_sslset();
-static void  reset_mailset();
-static void  reset_mailserverset();
-static void  reset_mmonitset();
-static void  reset_portset();
-static void  reset_resourceset();
-static void  reset_timestampset();
-static void  reset_actionrateset();
-static void  reset_sizeset();
-static void  reset_uptimeset();
-static void  reset_pidset();
-static void  reset_ppidset();
-static void  reset_fsflagset();
-static void  reset_nonexistset();
-static void  reset_existset();
-static void  reset_linkstatusset();
-static void  reset_linkspeedset();
-static void  reset_linksaturationset();
-static void  reset_bandwidthset();
-static void  reset_checksumset();
-static void  reset_permset();
-static void  reset_uidset();
-static void  reset_gidset();
-static void  reset_statusset();
-static void  reset_filesystemset();
-static void  reset_icmpset();
+static void  reset_sslset(void);
+static void  reset_mailset(void);
+static void  reset_mailserverset(void);
+static void  reset_mmonitset(void);
+static void  reset_portset(void);
+static void  reset_resourceset(void);
+static void  reset_timestampset(void);
+static void  reset_actionrateset(void);
+static void  reset_sizeset(void);
+static void  reset_uptimeset(void);
+static void  reset_pidset(void);
+static void  reset_ppidset(void);
+static void  reset_fsflagset(void);
+static void  reset_nonexistset(void);
+static void  reset_existset(void);
+static void  reset_linkstatusset(void);
+static void  reset_linkspeedset(void);
+static void  reset_linksaturationset(void);
+static void  reset_bandwidthset(void);
+static void  reset_checksumset(void);
+static void  reset_permset(void);
+static void  reset_uidset(void);
+static void  reset_gidset(void);
+static void  reset_statusset(void);
+static void  reset_filesystemset(void);
+static void  reset_icmpset(void);
 static void  reset_rateset(struct rate_t *);
 static void  check_name(char *);
 static int   check_perm(int);
 static void  check_exec(char *);
 static int   cleanup_hash_string(char *);
-static void  check_depend();
+static void  check_depend(void);
 static void  setsyslog(char *);
 static command_t copycommand(command_t);
 static int verifyMaxForward(int);
 static void _setPEM(char **store, char *path, const char *description, boolean_t isFile);
 static void _setSSLOptions(SslOptions_T options);
+static void addsecurityattribute(char *, Action_Type, Action_Type);
 
 %}
 
@@ -340,7 +341,7 @@ static void _setSSLOptions(SslOptions_T options);
 %token GROUP REQUEST DEPENDS BASEDIR SLOT EVENTQUEUE SECRET HOSTHEADER
 %token UID EUID GID MMONIT INSTANCE USERNAME PASSWORD
 %token TIME ATIME CTIME MTIME CHANGED MILLISECOND SECOND MINUTE HOUR DAY MONTH
-%token SSLAUTO SSLV2 SSLV3 TLSV1 TLSV11 TLSV12 CERTMD5 AUTO
+%token SSLAUTO SSLV2 SSLV3 TLSV1 TLSV11 TLSV12 TLSV13 CERTMD5 AUTO
 %token BYTE KILOBYTE MEGABYTE GIGABYTE
 %token INODE SPACE TFREE PERMISSION SIZE MATCH NOT IGNORE ACTION UPTIME
 %token EXEC UNMONITOR PING PING4 PING6 ICMP ICMPECHO NONEXIST EXIST INVALID DATA RECOVERED PASSED SUCCEEDED
@@ -351,6 +352,7 @@ static void _setSSLOptions(SslOptions_T options);
 %token <string> TARGET TIMESPEC HTTPHEADER
 %token <number> MAXFORWARD
 %token FIPS
+%token SECURITY ATTRIBUTE
 
 %left GREATER GREATEROREQUAL LESS LESSOREQUAL EQUAL NOTEQUAL
 
@@ -405,6 +407,7 @@ optproc         : start
                 | ppid
                 | uid
                 | euid
+                | secattr
                 | gid
                 | uptime
                 | connection
@@ -904,6 +907,15 @@ sslversion      : SSLV2 {
                         sslset.flags = SSL_Enabled;
                         sslset.version = SSL_TLSV12;
                 }
+                | TLSV13
+                {
+#ifndef HAVE_TLSV1_3
+                        yyerror("Your SSL Library does not support TLS version 1.3");
+#endif
+                        sslset.flags = SSL_Enabled;
+                        sslset.version = SSL_TLSV13;
+                }
+
                 | SSLAUTO {
                         sslset.flags = SSL_Enabled;
                         sslset.version = SSL_Auto;
@@ -1042,11 +1054,39 @@ httpdport       : PORT NUMBER {
                   }
                 ;
 
-httpdsocket     : UNIXSOCKET PATH {
+httpdsocket     : UNIXSOCKET PATH httpdsocketoptionlist {
                         Run.httpd.flags |= Httpd_Unix;
                         Run.httpd.socket.unix.path = $2;
                   }
                 ;
+
+httpdsocketoptionlist : /* EMPTY */
+                      | httpdsocketoptionlist httpdsocketoption
+                      ;
+
+httpdsocketoption : UID STRING {
+                        Run.httpd.flags |= Httpd_UnixUid;
+                        Run.httpd.socket.unix.uid = get_uid($2, 0);
+                        FREE($2);
+                    }
+                  | GID STRING {
+                        Run.httpd.flags |= Httpd_UnixGid;
+                        Run.httpd.socket.unix.gid = get_gid($2, 0);
+                        FREE($2);
+                    }
+                  | UID NUMBER {
+                        Run.httpd.flags |= Httpd_UnixUid;
+                        Run.httpd.socket.unix.uid = get_uid(NULL, $2);
+                    }
+                  | GID NUMBER {
+                        Run.httpd.flags |= Httpd_UnixGid;
+                        Run.httpd.socket.unix.gid = get_gid(NULL, $2);
+                    }
+                  | PERMISSION NUMBER {
+                        Run.httpd.flags |= Httpd_UnixPermission;
+                        Run.httpd.socket.unix.permission = check_perm($2);
+                    }
+                  ;
 
 sigenable       : SIGNATURE ENABLE
                 | ENABLE SIGNATURE
@@ -1233,14 +1273,16 @@ checkprogram    : CHECKPROGRAM SERVICENAME PATHTOK argumentlist programtimeout {
                         check_exec(c->arg[0]);
                         createservice(Service_Program, $<string>2, NULL, check_program);
                         current->program->timeout = $<number>5;
-                        current->program->output = StringBuffer_create(64);
+                        current->program->lastOutput = StringBuffer_create(64);
+                        current->program->inprogressOutput = StringBuffer_create(64);
                  }
                 | CHECKPROGRAM SERVICENAME PATHTOK argumentlist useroptionlist programtimeout {
                         command_t c = command; // Current command
                         check_exec(c->arg[0]);
                         createservice(Service_Program, $<string>2, NULL, check_program);
                         current->program->timeout = $<number>6;
-                        current->program->output = StringBuffer_create(64);
+                        current->program->lastOutput = StringBuffer_create(64);
+                        current->program->inprogressOutput = StringBuffer_create(64);
                  }
                 ;
 
@@ -1697,8 +1739,12 @@ http            : username {
                 ;
 
 status          : STATUS operator NUMBER {
+                        if ($<number>3 < 0) {
+                                yyerror2("The status value must be greater or equal to 0");
+                        }
                         portset.parameters.http.operator = $<number>2;
                         portset.parameters.http.status = $<number>3;
+                        portset.parameters.http.hasStatus = true;
                   }
                 ;
 
@@ -2667,6 +2713,14 @@ euid            : IF FAILED EUID STRING rate1 THEN action1 recovery {
                   }
                 ;
 
+secattr         : IF FAILED SECURITY ATTRIBUTE STRING rate1 THEN action1 recovery {
+                        addsecurityattribute($5, $<number>8, $<number>9);
+                  }
+                | IF FAILED SECURITY ATTRIBUTE PATH rate1 THEN action1 recovery {
+                        addsecurityattribute($5, $<number>8, $<number>9);
+                  }
+                ;
+
 gid             : IF FAILED GID STRING rate1 THEN action1 recovery {
                         gidset.gid = get_gid($4, 0);
                         addeventaction(&(gidset).action, $<number>7, $<number>8);
@@ -3333,7 +3387,7 @@ static void addport(Port_T *list, Port_T port) {
                                 sslset.flags = SSL_StartTLS;
                         _setSSLOptions(&(p->target.net.ssl.options));
 #else
-                        yyerror("SSL check cannot be activated -- SSL disabled");
+                        yyerror("SSL check cannot be activated -- Monit was not built with SSL support");
 #endif
                 }
         }
@@ -4282,7 +4336,7 @@ static void addhtpasswdentry(char *filename, char *username, Digest_Type dtype) 
 
         handle = fopen(filename, "r");
 
-        if ( handle == NULL ) {
+        if (handle == NULL) {
                 if (username != NULL)
                         yyerror2("Cannot read htpasswd (%s)", filename);
                 else
@@ -4299,7 +4353,7 @@ static void addhtpasswdentry(char *filename, char *username, Digest_Type dtype) 
                 Str_rtrim(buf);
                 Str_curtail(buf, "#");
 
-                if ( NULL == (colonindex = strchr(buf, ':')))
+                if (NULL == (colonindex = strchr(buf, ':')))
                 continue;
 
                 ht_passwd = Str_dup(colonindex+1);
@@ -4309,8 +4363,8 @@ static void addhtpasswdentry(char *filename, char *username, Digest_Type dtype) 
                  *  want to remove ":.*$" and Crypt and MD5 hashed dont have a colon
                  */
 
-                if ( (NULL != (colonindex = strchr(ht_passwd, ':'))) && ( dtype != Digest_Cleartext) )
-                *colonindex = '\0';
+                if ((NULL != (colonindex = strchr(ht_passwd, ':'))) && (dtype != Digest_Cleartext))
+                        *colonindex = '\0';
 
                 ht_username = Str_dup(buf);
 
@@ -4327,7 +4381,7 @@ static void addhtpasswdentry(char *filename, char *username, Digest_Type dtype) 
         }
 
         if (credentials_added == 0) {
-                if ( username == NULL )
+                if (username == NULL)
                         yywarning2("htpasswd file (%s) has no usable credentials", filename);
                 else
                         yywarning2("htpasswd file (%s) has no usable credentials for user %s", filename, username);
@@ -4816,8 +4870,11 @@ static void check_exec(char *exec) {
 
 /* Return a valid max forward value for SIP header */
 static int verifyMaxForward(int mf) {
-        if (mf >= 0 && mf <= 255)
+        if (mf == 0) {
+                return INT_MAX; // Differentiate unitialized (0) and explicit zero
+        } else if (mf > 0 && mf <= 255) {
                 return mf;
+        }
         yywarning2("SIP max forward is outside the range [0..255]. Setting max forward to 70");
         return 70;
 }
@@ -4895,5 +4952,14 @@ static void _setSSLOptions(SslOptions_T options) {
         options->verify = sslset.verify;
         options->version = sslset.version;
         reset_sslset();
+}
+
+static void addsecurityattribute(char *value, Action_Type failed, Action_Type succeeded) {
+        SecurityAttribute_T attr;
+        NEW(attr);
+        addeventaction(&(attr->action), failed, succeeded);
+        attr->attribute = value;
+        attr->next = current->secattrlist;
+        current->secattrlist = attr;
 }
 

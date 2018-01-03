@@ -6,7 +6,7 @@ AC_PREREQ([2.53])
 # Note: in  case of beta subversion, use underscore "_" rather then dash "-"
 # since RPM doesn't allow dash in Version
 # Example: 5.0_beta2
-AC_INIT([monit], [5.23.0], [monit-general@nongnu.org])
+AC_INIT([monit], [5.25.1], [monit-general@nongnu.org])
 AC_CONFIG_AUX_DIR(config)
 AC_CONFIG_MACRO_DIR([m4])
 AM_INIT_AUTOMAKE
@@ -448,27 +448,50 @@ fi
 # IPv6 Support
 # ------------------------------------------------------------------------
 
-AC_MSG_CHECKING(for IPv6 support)
-AC_CACHE_VAL(ac_cv_ipv6,
-        AC_TRY_RUN([
-        #include <sys/types.h>
-        #include <sys/socket.h>
-        #include <netinet/in.h>
-        /* Make sure the definitions for AF_INET6 and struct sockaddr_in6
-         * are defined, and that we can actually create an IPv6 TCP socket.*/
-        main()
-        {
-                int fd;
-                struct sockaddr_in6 foo;
-                fd = socket(AF_INET6, SOCK_STREAM, 0);
-                exit(fd >= 0 ? 0 : 1);
-        }],
-        ac_cv_ipv6=yes,
-        ac_cv_ipv6=no,
-        ac_cv_ipv6=no))
-AC_MSG_RESULT($ac_cv_ipv6)
-if test $ac_cv_ipv6 = yes ; then
-        AC_DEFINE([HAVE_IPV6], 1, [Define to 1 if the system supports IPv6])
+AC_ARG_WITH(ipv6,
+    AS_HELP_STRING([--without-ipv6], [Disable the IPv6 support (default: enabled)]),
+    [
+        if test "x$withval" = "xno"
+        then
+            use_ipv6=0
+        elif test "x$withval" = "xyes"
+        then
+            use_ipv6=1
+        fi
+    ],
+    [
+        use_ipv6=1
+    ]
+)
+
+if test $use_ipv6 = 1
+then
+        AC_MSG_CHECKING(for IPv6 support)
+        AC_CACHE_VAL(ac_cv_ipv6,
+                AC_TRY_RUN([
+                #include <sys/types.h>
+                #include <sys/socket.h>
+                #include <netinet/in.h>
+                /* Make sure the definitions for AF_INET6 and struct sockaddr_in6
+                 * are defined, and that we can actually create an IPv6 TCP socket.*/
+                main()
+                {
+                        int fd;
+                        struct sockaddr_in6 foo;
+                        fd = socket(AF_INET6, SOCK_STREAM, 0);
+                        exit(fd >= 0 ? 0 : 1);
+                }],
+                ac_cv_ipv6=yes,
+                ac_cv_ipv6=no,
+                ac_cv_ipv6=no))
+        AC_MSG_RESULT($ac_cv_ipv6)
+
+        if test $ac_cv_ipv6 = yes
+        then
+                AC_DEFINE([HAVE_IPV6], 1, [Define to 1 if the system supports IPv6])
+        else
+                use_ipv6=0
+        fi
 fi
 
 
@@ -958,6 +981,16 @@ if test "$use_sslstatic" = "1" -o "$use_ssl" = "1"; then
                 AC_DEFINE([HAVE_TLSV1_2], 1, [Define to 1 if you have openssl with TLSv1.2])
         fi
 
+        AC_MSG_CHECKING([for TLSv1.3])
+        AC_LINK_IFELSE(
+                [AC_LANG_PROGRAM([#include <openssl/ssl.h>], [TLSv1_3_method()])],
+                [tlsv13=yes],
+                [tlsv13=no])
+        AC_MSG_RESULT($tlsv13)
+        if test "$tlsv13" = "yes" ; then
+                AC_DEFINE([HAVE_TLSV1_3], 1, [Define to 1 if you have openssl with TLSv1.3])
+        fi
+
         AC_MSG_CHECKING([for EC_KEY support])
         AC_LINK_IFELSE(
                 [AC_LANG_PROGRAM([#include <openssl/ssl.h>], [EC_KEY_new_by_curve_name(0)])],
@@ -1089,6 +1122,11 @@ if test "$use_largefiles" = "1"; then
 echo "|   Large files support:                          ENABLED    |"
 else
 echo "|   Large files support:                          DISABLED   |"
+fi
+if test "$use_ipv6" = "1"; then
+echo "|   IPv6 support:                                 ENABLED    |"
+else
+echo "|   IPv6 support:                                 DISABLED   |"
 fi
 if test "x1" = "x$OPTIMIZED"; then
 echo "|   Optimized:                                    ENABLED    |"

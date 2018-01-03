@@ -99,6 +99,7 @@ static void _delete(ProcessTree_T **pt, int *size) {
                 for (int i = 0; i < *size; i++) {
                         FREE(_pt[i].cmdline);
                         FREE(_pt[i].children.list);
+                        FREE(_pt[i].secattr);
                 }
                 FREE(_pt);
                 *pt = NULL;
@@ -131,17 +132,25 @@ static int _findProcess(int pid, ProcessTree_T *pt, int size) {
  */
 static void _fillProcessTree(ProcessTree_T *pt, int index) {
         if (! pt[index].visited) {
-                pt[index].visited            = true;
-                pt[index].children.total     = pt[index].children.count;
+                pt[index].visited = true;
+                pt[index].children.total = pt[index].children.count;
+                pt[index].threads.children = 0;
+                pt[index].cpu.usage.children = 0.;
                 pt[index].memory.usage_total = pt[index].memory.usage;
-                pt[index].cpu.usage_total    = pt[index].cpu.usage;
-                for (int i = 0; i < pt[index].children.count; i++)
+                for (int i = 0; i < pt[index].children.count; i++) {
                         _fillProcessTree(pt, pt[index].children.list[i]);
+                }
                 if (pt[index].parent != -1 && pt[index].parent != index) {
-                        ProcessTree_T *parent_pt       = &pt[pt[index].parent];
-                        parent_pt->children.total     += pt[index].children.total;
-                        parent_pt->memory.usage_total += pt[index].memory.usage_total;
-                        parent_pt->cpu.usage_total    += pt[index].cpu.usage_total;
+                        ProcessTree_T *parent_pt = &pt[pt[index].parent];
+                        parent_pt->children.total += pt[index].children.total;
+                        parent_pt->threads.children += (pt[index].threads.self > 1 ? pt[index].threads.self : 1) + (pt[index].threads.children > 0 ? pt[index].threads.children : 0);
+                        if (pt[index].cpu.usage.self >= 0) {
+                                parent_pt->cpu.usage.children += pt[index].cpu.usage.self;
+                        }
+                        if (pt[index].cpu.usage.children >= 0) {
+                                parent_pt->cpu.usage.children += pt[index].cpu.usage.children;
+                        }
+                        parent_pt->memory.usage_total  += pt[index].memory.usage_total;
                 }
         }
 }
@@ -155,22 +164,22 @@ static void _fillProcessTree(ProcessTree_T *pt, int index) {
  * @param delta The delta of system time between current and previous cycle
  * @return Process' CPU usage [%] since last cycle
  */
-static float _cpuUsage(ProcessTree_T *now, ProcessTree_T *prev, double delta) {
-        if (systeminfo.cpu.count > 0 && delta > 0 && prev->cpu.time > 0 && now->cpu.time > prev->cpu.time) {
+static float _cpuUsage(float rawUsage, unsigned threads) {
+        if (systeminfo.cpu.count > 0 && rawUsage > 0) {
                 int divisor;
-                if (now->threads > 1) {
-                        if (now->threads >= systeminfo.cpu.count) {
+                if (threads > 1) {
+                        if (threads >= systeminfo.cpu.count) {
                                 // Multithreaded application with more threads then CPU cores
                                 divisor = systeminfo.cpu.count;
                         } else {
                                 // Multithreaded application with less threads then CPU cores
-                                divisor = now->threads;
+                                divisor = threads;
                         }
                 } else {
                         // Single threaded application
                         divisor = 1;
                 }
-                float usage = (100. * (now->cpu.time - prev->cpu.time) / delta) / divisor;
+                float usage = rawUsage / divisor;
                 return usage > 100. ? 100. : usage;
         }
         return 0.;
@@ -204,6 +213,7 @@ int ProcessTree_init(ProcessEngine_Flags pflags) {
                 for (int i = 0; i < oldptreesize; i++) {
                         FREE(oldptree[i].cmdline);
                         FREE(oldptree[i].children.list);
+                        FREE(oldptree[i].secattr);
                 }
         }
 
@@ -224,10 +234,14 @@ int ProcessTree_init(ProcessEngine_Flags pflags) {
         ProcessTree_T *pt = ptree;
         double time_delta = systeminfo.time - systeminfo.time_prev;
         for (int i = 0; i < (volatile int)ptreesize; i ++) {
+                pt[i].cpu.usage.self = -1;
                 if (oldptree) {
                         int oldentry = _findProcess(pt[i].pid, oldptree, oldptreesize);
-                        if (oldentry != -1)
-                                pt[i].cpu.usage = _cpuUsage(&pt[i], &oldptree[oldentry], time_delta);
+                        if (oldentry != -1) {
+                                if (systeminfo.cpu.count > 0 && time_delta > 0 && oldptree[oldentry].cpu.time >= 0 && pt[i].cpu.time >= oldptree[oldentry].cpu.time) {
+                                        pt[i].cpu.usage.self = 100. * (pt[i].cpu.time - oldptree[oldentry].cpu.time) / time_delta;
+                                }
+                        }
                 }
                 // Note: on DragonFly, main process is swapper with pid 0 and ppid -1, so take also this case into consideration
                 if ((pt[i].pid == pt[i].ppid) || (pt[i].ppid == -1)) {
@@ -287,11 +301,21 @@ boolean_t ProcessTree_updateProcess(Service_T s, pid_t pid) {
                 s->inf.process->euid              = ptree[leaf].cred.euid;
                 s->inf.process->gid               = ptree[leaf].cred.gid;
                 s->inf.process->uptime            = ptree[leaf].uptime;
-                s->inf.process->threads           = ptree[leaf].threads;
+                s->inf.process->threads           = ptree[leaf].threads.self;
                 s->inf.process->children          = ptree[leaf].children.total;
                 s->inf.process->zombie            = ptree[leaf].zombie;
-                s->inf.process->cpu_percent       = ptree[leaf].cpu.usage;
-                s->inf.process->total_cpu_percent = ptree[leaf].cpu.usage_total > 100. ? 100. : ptree[leaf].cpu.usage_total;
+                snprintf(s->inf.process->secattr, STRLEN, "%s", ptree[leaf].secattr);
+                if (ptree[leaf].cpu.usage.self >= 0) {
+                        // compute only if initialized (delta between current and previous snapshot is available)
+                        s->inf.process->cpu_percent = _cpuUsage(ptree[leaf].cpu.usage.self, ptree[leaf].threads.self);
+                        s->inf.process->total_cpu_percent = s->inf.process->cpu_percent + _cpuUsage(ptree[leaf].cpu.usage.children, ptree[leaf].threads.children);
+                        if (s->inf.process->total_cpu_percent > 100.) {
+                                s->inf.process->total_cpu_percent = 100.;
+                        }
+                } else {
+                        s->inf.process->cpu_percent = -1;
+                        s->inf.process->total_cpu_percent = -1;
+                }
                 s->inf.process->mem               = ptree[leaf].memory.usage;
                 s->inf.process->total_mem         = ptree[leaf].memory.usage_total;
                 if (systeminfo.memory.size > 0) {
@@ -435,11 +459,11 @@ boolean_t init_system_info(void) {
                                 if (propertyList) {
                                         CFStringRef value = CFDictionaryGetValue(propertyList, CFSTR("ProductName"));
                                         if (value) {
-                                                snprintf(systeminfo.uname.sysname, sizeof(systeminfo.uname.sysname), "%s", CFStringGetCStringPtr(value, CFStringGetSystemEncoding()));
+                                                CFStringGetCString(value, systeminfo.uname.sysname, sizeof(systeminfo.uname.sysname), CFStringGetSystemEncoding());
                                         }
                                         value = CFDictionaryGetValue(propertyList, CFSTR("ProductVersion"));
                                         if (value) {
-                                                snprintf(systeminfo.uname.release, sizeof(systeminfo.uname.release), "%s", CFStringGetCStringPtr(value, CFStringGetSystemEncoding()));
+                                                CFStringGetCString(value, systeminfo.uname.release, sizeof(systeminfo.uname.release), CFStringGetSystemEncoding());
                                         }
                                         CFRelease(propertyList);
                                 }
